@@ -1,0 +1,10 @@
+{
+  "showLineNumber": false,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "articles/drafts",
+  "showUnsupportedFiles": true,
+  "attachmentFolderPath": "assets/images",
+  "alwaysUpdateLinks": true,
+  "promptDelete": false,
+  "newLinkFormat": "absolute"
+}
