@@ -25,12 +25,29 @@ class ObsidianProcessor:
         images = []
         
         # Obsidian画像記法: ![[image.png | caption | width]]
-        pattern = r'!\[\[([^|\]]+)(?:\s*\|\s*([^|\]]+))?(?:\s*\|\s*(\d+))?\]\]'
+        # 改善: パスを正しく取得するため、最初のグループは]以外の全文字を許可
+        pattern = r'!\[\[([^\]]+?)(?:\s*\|\s*([^|\]]+?))?(?:\s*\|\s*(\d+))?\]\]'
         
         for match in re.finditer(pattern, content):
-            filename = match.group(1).strip()
-            caption = match.group(2).strip() if match.group(2) else ""
+            # パイプ記号で分割して最初の部分をファイル名として取得
+            parts = match.group(1).split('|')
+            filename = parts[0].strip()
+            
+            # キャプションと幅の処理
+            if match.group(2):
+                caption = match.group(2).strip()
+            elif len(parts) > 1:
+                caption = parts[1].strip()
+            else:
+                caption = ""
+            
             width = int(match.group(3)) if match.group(3) else None
+            
+            # デバッグログ
+            logger.debug(f"画像記法発見: {match.group(0)}")
+            logger.debug(f"  ファイル名: {filename}")
+            logger.debug(f"  キャプション: {caption}")
+            logger.debug(f"  幅: {width}")
             
             # ファイルパスを解決
             image_path = self._resolve_image_path(filename, base_dir)
@@ -39,22 +56,23 @@ class ObsidianProcessor:
                 images.append({
                     'original_filename': filename,
                     'local_path': str(image_path),
-                    'caption': caption,  # キャプションをそのまま保持
+                    'caption': caption,  # キャプションをそのまま保持（HTMLタグ含む）
                     'width': width,
                     'match_text': match.group(0),
                     'alt_text': self._generate_alt_text(filename, caption)
                 })
-                logger.debug("画像検出", filename=filename, caption=caption, width=width)
+                logger.info(f"画像検出成功: {match.group(0)} -> {image_path}")
             else:
                 logger.warning(f"画像ファイル未発見: {filename}")
         
         return images
     
     def _generate_alt_text(self, filename: str, caption: str) -> str:
-        """alt text自動生成（HTMLタグ変換なし）"""
+        """alt text自動生成（<br>タグは除去）"""
         if caption:
-            # キャプションをそのまま使用（HTMLタグ変換しない）
-            return caption.strip()
+            # HTMLタグを除去してalt textとして使用
+            alt_text = re.sub(r'<[^>]+>', ' ', caption)
+            return alt_text.strip()
         
         # ファイル名からalt text生成
         base_name = Path(filename).stem
@@ -65,63 +83,65 @@ class ObsidianProcessor:
     
     def _resolve_image_path(self, filename: str, base_dir: Path) -> Optional[Path]:
         """画像ファイルパスを解決"""
-        logger.debug(f"画像検索開始: {filename}")
+        logger.debug(f"画像パス解決開始: {filename}")
         
-        # 検索パス候補
-        search_candidates = [
-            # 1. 同一ディレクトリ
-            base_dir / filename,
-            # 2. assets/images 直下
-            self.assets_dir / filename,
-            # 3. assets/images の年/月構造
-            self.assets_dir / "2025" / "07" / filename,
-            # 4. 記事名ベースのフォルダ
-            base_dir / f"{base_dir.stem}_assets" / filename,
-        ]
+        # ファイル名の正規化（先頭・末尾の空白、スラッシュを削除）
+        filename = filename.strip().strip('/')
         
-        # 候補パスをチェック
-        for path in search_candidates:
-            logger.debug(f"検索中: {path}")
-            if path.exists() and path.is_file():
-                logger.info(f"画像発見: {filename} -> {path}")
-                return path
+        # 拡張子の確認
+        if '.' not in Path(filename).name:
+            possible_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+        else:
+            possible_extensions = ['']
         
-        # 再帰検索（重い処理なので最後に実行）
-        logger.debug("再帰検索開始...")
-        for path in self.assets_dir.rglob(filename):
-            if path.is_file():
-                logger.info(f"画像発見（再帰検索）: {filename} -> {path}")
-                return path
+        for ext in possible_extensions:
+            test_filename = filename if ext == '' else f"{filename}{ext}"
+            
+            # 検索パス候補
+            search_candidates = [
+                base_dir / test_filename,
+                self.assets_dir / test_filename,
+                self.repo_root / test_filename,  # フルパスの場合
+            ]
+            
+            # 年月ディレクトリ構造も検索
+            if '/' not in test_filename:
+                search_candidates.extend([
+                    self.assets_dir / "2025" / "07" / test_filename,
+                    base_dir / f"{base_dir.stem}_assets" / test_filename,
+                ])
+            
+            for path in search_candidates:
+                if path.exists() and path.is_file():
+                    logger.info(f"画像発見: {filename} -> {path}")
+                    return path
         
-        # プロジェクト全体での検索（最後の手段）
-        logger.debug("プロジェクト全体検索...")
-        for path in self.repo_root.rglob(filename):
-            if path.is_file() and not str(path).startswith('.git'):
-                logger.info(f"画像発見（全体検索）: {filename} -> {path}")
-                return path
+        # 最後の手段：ファイル名のみで全体検索
+        filename_only = Path(filename).name
+        for ext in possible_extensions:
+            test_filename = filename_only if ext == '' else f"{filename_only}{ext}"
+            
+            # assetsディレクトリを優先的に検索
+            for path in self.assets_dir.rglob(test_filename):
+                if path.is_file():
+                    logger.info(f"画像発見（assets内検索）: {filename} -> {path}")
+                    return path
+            
+            # プロジェクト全体で検索
+            for path in self.repo_root.rglob(test_filename):
+                if path.is_file() and '.git' not in str(path):
+                    logger.info(f"画像発見（全体検索）: {filename} -> {path}")
+                    return path
         
         logger.warning(f"画像ファイル未発見: {filename}")
         return None
     
-    def _generate_alt_text(self, filename: str, caption: str) -> str:
-        """alt text自動生成"""
-        if caption:
-            # HTMLタグを除去
-            clean_caption = re.sub(r'<[^>]+>', '', caption)
-            return clean_caption.replace('<br>', ' ').strip()
-        
-        # ファイル名からalt text生成
-        base_name = Path(filename).stem
-        alt_text = re.sub(r'[-_]', ' ', base_name)
-        alt_text = re.sub(r'\d{8}|\d{4}-\d{2}-\d{2}', '', alt_text)
-        
-        return alt_text.strip() or 'image'
-    
     def process_obsidian_syntax(self, content: str) -> str:
         """Obsidian固有記法を標準記法に変換"""
         # wikilink [[page]] → [page](URL) 変換
+        # 重要: 画像記法 ![[...]] は除外する
         content = re.sub(
-            r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]',
+            r'(?<!\!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]',
             lambda m: f'[{m.group(2) or m.group(1)}]({self._wiki_to_url(m.group(1))})',
             content
         )
@@ -141,13 +161,21 @@ class ObsidianProcessor:
     
     def update_image_references(self, content: str, image_mapping: Dict) -> str:
         """画像参照をWordPress URLに更新"""
+        updated_content = content
+        
         for match_text, wp_info in image_mapping.items():
             # Obsidian記法を<figure>構造のHTMLに変換
             figure_html = self._create_figure_html(wp_info)
-            content = content.replace(match_text, figure_html)
+            
+            # 置換前後をログ出力
+            if match_text in updated_content:
+                logger.debug(f"画像置換: {match_text} -> WordPress URL")
+                updated_content = updated_content.replace(match_text, figure_html)
+            else:
+                logger.warning(f"置換対象が見つかりません: {match_text}")
         
-        logger.debug("画像参照更新完了", count=len(image_mapping))
-        return content
+        logger.info("画像参照更新完了", count=len(image_mapping))
+        return updated_content
     
     def _create_figure_html(self, wp_info: Dict) -> str:
         """WordPress画像から<figure>構造のHTMLを生成"""
@@ -157,22 +185,37 @@ class ObsidianProcessor:
         ]
         
         # 幅指定がある場合
+        size_class = ""
         if wp_info.get('width'):
-            img_attrs.append(f'width="{wp_info["width"]}"')
+            width = wp_info['width']
+            img_attrs.append(f'width="{width}"')
+            
+            # WordPressのサイズクラスを決定
+            if width <= 150:
+                size_class = " size-thumbnail"
+            elif width <= 300:
+                size_class = " size-medium"
+            elif width <= 1024:
+                size_class = " size-large"
+            else:
+                size_class = " size-full"
         
         img_tag = f'<img {" ".join(img_attrs)} />'
         
         # キャプションがある場合は<figure>で囲む
         if wp_info.get('caption'):
-            figure_html = f'''<figure class="wp-block-image">
+            # キャプション内の<br>タグはそのまま保持
+            # aligncenterクラスで中央寄せ
+            figure_html = f'''<figure class="wp-block-image aligncenter{size_class}">
     {img_tag}
     <figcaption class="wp-element-caption">{wp_info["caption"]}</figcaption>
 </figure>'''
         else:
-            # キャプションがない場合は<img>タグのみ
-            figure_html = img_tag
+            # キャプションがない場合も中央寄せ
+            figure_html = f'<figure class="wp-block-image aligncenter{size_class}">{img_tag}</figure>'
         
         return figure_html
+
 
 class ImageOptimizer:
     """画像最適化クラス"""
@@ -192,39 +235,70 @@ class ImageOptimizer:
         
         try:
             # ファイル名正規化
-            normalized_name = self._normalize_filename(image_path.name)
-            output_path = self.temp_dir / normalized_name
+            is_gif = image_path.suffix.lower() == '.gif'
             
-            with Image.open(image_path) as img:
-                original_size = img.size
+            if is_gif:
+                # GIF画像の場合は変換せずにファイル名のみ正規化
+                normalized_name = self._normalize_filename(image_path.name, keep_extension=True)
+                output_path = self.temp_dir / normalized_name
                 
-                # リサイズ（必要な場合）
-                if target_width and img.width > target_width:
-                    img.thumbnail((target_width, target_width), Image.Resampling.LANCZOS)
-                    logger.debug("画像リサイズ", original=original_size, target_width=target_width)
+                # GIFファイルをそのままコピー
+                output_path.write_bytes(image_path.read_bytes())
                 
-                # WebP変換
-                img.save(output_path, 'WebP', quality=85, optimize=True)
-                
-                # レスポンシブサイズ生成
-                responsive_sizes = self._generate_responsive_sizes(img, Path(normalized_name).stem)
-                
-                # サイズ削減率計算
-                reduction = self._calculate_size_reduction(image_path, output_path)
-                
-                logger.info("画像最適化完了", 
+                logger.info("GIF画像をそのままコピー", 
                            original=image_path.name,
-                           optimized=normalized_name,
-                           reduction_percent=f"{reduction:.1f}%")
+                           output=normalized_name)
                 
                 return {
                     'original_path': str(image_path),
                     'optimized_path': str(output_path),
                     'normalized_filename': normalized_name,
-                    'responsive_sizes': responsive_sizes,
-                    'size_reduction': reduction,
-                    'original_size': original_size
+                    'size_reduction': 0,
+                    'original_size': None,
+                    'is_gif': True
                 }
+            else:
+                # GIF以外の画像は通常の最適化処理
+                normalized_name = self._normalize_filename(image_path.name)
+                output_path = self.temp_dir / normalized_name
+                
+                with Image.open(image_path) as img:
+                    # RGBA → RGB変換（WebPのため）
+                    if img.mode in ('RGBA', 'LA'):
+                        background = Image.new('RGB', img.size, (255, 255, 255))
+                        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                        img = background
+                    elif img.mode not in ('RGB', 'L'):
+                        img = img.convert('RGB')
+                    
+                    original_size = img.size
+                    
+                    # リサイズ（必要な場合）
+                    if target_width and img.width > target_width:
+                        ratio = target_width / img.width
+                        new_height = int(img.height * ratio)
+                        img = img.resize((target_width, new_height), Image.Resampling.LANCZOS)
+                        logger.debug("画像リサイズ", original=original_size, new_size=img.size)
+                    
+                    # WebP変換
+                    img.save(output_path, 'WebP', quality=85, optimize=True)
+                    
+                    # サイズ削減率計算
+                    reduction = self._calculate_size_reduction(image_path, output_path)
+                    
+                    logger.info("画像最適化完了", 
+                               original=image_path.name,
+                               optimized=normalized_name,
+                               reduction_percent=f"{reduction:.1f}%")
+                    
+                    return {
+                        'original_path': str(image_path),
+                        'optimized_path': str(output_path),
+                        'normalized_filename': normalized_name,
+                        'size_reduction': reduction,
+                        'original_size': original_size,
+                        'is_gif': False
+                    }
                 
         except Exception as e:
             logger.error(f"画像最適化エラー: {e}", file=image_path.name)
@@ -236,13 +310,13 @@ class ImageOptimizer:
                 'original_path': str(image_path),
                 'optimized_path': str(fallback_path),
                 'normalized_filename': image_path.name,
-                'responsive_sizes': {},
+                'size_reduction': 0,
                 'error': str(e)
             }
     
-    def _normalize_filename(self, filename: str) -> str:
+    def _normalize_filename(self, filename: str, keep_extension: bool = False) -> str:
         """SEO最適化ファイル名に正規化"""
-        name, _ = os.path.splitext(filename)
+        name, ext = os.path.splitext(filename)
         
         # 特殊文字除去・置換
         name = re.sub(r'[^\w\s-]', '', name)
@@ -255,23 +329,11 @@ class ImageOptimizer:
         # 連続ハイフン正規化
         name = re.sub(r'-+', '-', name).strip('-')
         
-        return f"{name}.webp"
-    
-    def _generate_responsive_sizes(self, img: Image.Image, base_name: str) -> Dict:
-        """レスポンシブ画像サイズ生成"""
-        responsive = {}
-        sizes = [400, 800, 1200, 1600]
-        
-        for size in sizes:
-            if img.width > size:
-                resized = img.copy()
-                resized.thumbnail((size, size), Image.Resampling.LANCZOS)
-                
-                responsive_path = self.temp_dir / f"{base_name}_{size}w.webp"
-                resized.save(responsive_path, 'WebP', quality=85, optimize=True)
-                responsive[size] = str(responsive_path)
-        
-        return responsive
+        # 拡張子の決定
+        if keep_extension:
+            return f"{name}{ext.lower()}"
+        else:
+            return f"{name}.webp"
     
     def _calculate_size_reduction(self, original_path: Path, optimized_path: Path) -> float:
         """ファイルサイズ削減率計算"""

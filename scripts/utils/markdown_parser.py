@@ -23,14 +23,13 @@ class MarkdownParser:
                 'toc',
                 'footnotes',
                 'attr_list'
-                # nl2br は削除（画像キャプション内改行を防ぐため）
             ],
             extension_configs={
                 'codehilite': {
                     'css_class': 'highlight',
                     'use_pygments': False
                 },
-                'tables': {}  # テーブル拡張を明示的に設定
+                'tables': {}
             }
         )
     
@@ -94,7 +93,6 @@ class MarkdownParser:
     
     def _process_strikethrough(self, content: str) -> str:
         """打消し記法（~~text~~）を<del>タグに変換"""
-        # ~~で囲まれたテキストを<del>タグに変換
         pattern = r'~~([^~\n]+)~~'
         replacement = r'<del>\1</del>'
         
@@ -107,7 +105,6 @@ class MarkdownParser:
     
     def _process_code_diff_syntax(self, html: str) -> str:
         """コードブロック差分表示記法の処理"""
-        # ```python add:1-2,8-10 error:4-6 の記法を処理
         pattern = r'<code class="([^"]*language-\w+[^"]*)"([^>]*)>'
         
         def process_code_tag(match):
@@ -153,7 +150,7 @@ class MarkdownParser:
     
     def _process_url_cards(self, html: str) -> str:
         """URLカード用のクラス付与"""
-        # 単独行のURLにクラスを付与（footer.phpのJavaScriptが処理）
+        # 単独行のURLにクラスを付与
         pattern = r'<p><a href="(https?://[^"]+)"[^>]*>([^<]+)</a></p>'
         replacement = r'<p><a href="\1" class="url-card-target">\2</a></p>'
         
@@ -171,28 +168,20 @@ class MarkdownParser:
     
     def suggest_title_from_content(self, markdown_content: str, file_stem: str = None) -> str:
         """コンテンツからタイトルを推測"""
-        # 1. ファイル名を優先（拡張子なし）
+        # ファイル名を優先
         if file_stem and file_stem.lower() not in ['untitled', 'new', 'draft']:
             # ファイル名を整形
             title = file_stem.replace('-', ' ').replace('_', ' ')
-            # 先頭を大文字に
+            # 各単語の先頭を大文字に
             title = ' '.join(word.capitalize() for word in title.split())
             logger.debug("ファイル名からタイトル生成", original=file_stem, title=title)
             return title
         
-        # 2. 最初のH1タグから抽出
+        # 最初のH1タグから抽出
         h1_match = re.search(r'^#\s+(.+)', markdown_content, re.MULTILINE)
         if h1_match:
             title = h1_match.group(1).strip()
             logger.debug("H1タグからタイトル抽出", title=title)
             return title
-        
-        # 3. 最初の行をタイトルとして使用
-        lines = markdown_content.strip().split('\n')
-        for line in lines:
-            clean_line = line.strip()
-            if clean_line and not clean_line.startswith('#'):
-                logger.debug("最初の行からタイトル生成", title=clean_line[:50])
-                return clean_line[:50]  # 最大50文字
         
         return "Untitled"

@@ -73,7 +73,7 @@ class WordPressAPI:
         if response.status_code == 200:
             categories = response.json()
             for cat in categories:
-                if cat['name'] == category_name:
+                if cat['name'].lower() == category_name.lower():
                     logger.debug("既存カテゴリー発見", name=category_name, id=cat['id'])
                     return cat['id']
         
@@ -103,7 +103,7 @@ class WordPressAPI:
                 tags = response.json()
                 found = False
                 for tag in tags:
-                    if tag['name'] == tag_name:
+                    if tag['name'].lower() == tag_name.lower():
                         tag_ids.append(tag['id'])
                         found = True
                         break
@@ -119,6 +119,44 @@ class WordPressAPI:
                         logger.info("タグ作成", name=tag_name, id=new_tag['id'])
         
         return tag_ids
+    
+    def find_post_by_meta(self, meta_key: str, meta_value: str) -> Optional[Dict]:
+        """メタデータで投稿を検索"""
+        url = f"{self.wp_url}/wp-json/wp/v2/posts"
+        params = {
+            'meta_key': meta_key,
+            'meta_value': meta_value,
+            'per_page': 1
+        }
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        
+        if response.status_code == 200:
+            posts = response.json()
+            if posts:
+                return posts[0]
+        
+        return None
+    
+    def find_draft_by_title(self, title: str) -> Optional[Dict]:
+        """タイトルで下書きを検索"""
+        url = f"{self.wp_url}/wp-json/wp/v2/posts"
+        params = {
+            'search': title,
+            'status': 'draft',
+            'per_page': 10
+        }
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        
+        if response.status_code == 200:
+            posts = response.json()
+            # 完全一致を確認
+            for post in posts:
+                if post['title']['rendered'].strip() == title.strip():
+                    return post
+        
+        return None
     
     def create_post(self, post_data: Dict) -> Dict:
         """記事を投稿"""
@@ -142,6 +180,42 @@ class WordPressAPI:
             }
         else:
             error_msg = f"記事投稿失敗: {response.status_code}"
+            logger.error(error_msg, response=response.text[:200])
+            raise Exception(f"{error_msg} - {response.text}")
+    
+    def update_post(self, post_id: int, post_data: Dict) -> Dict:
+        """既存記事を更新"""
+        url = f"{self.wp_url}/wp-json/wp/v2/posts/{post_id}"
+        
+        # 更新時は一部フィールドのみ送信
+        update_data = {
+            'title': post_data['title'],
+            'content': post_data['content'],
+            'status': post_data['status'],
+            'categories': post_data['categories'],
+            'tags': post_data['tags'],
+            'meta': post_data['meta']
+        }
+        
+        response = requests.post(url, headers=self.headers, json=update_data)
+        
+        if response.status_code == 200:
+            post_result = response.json()
+            logger.info("記事更新成功",
+                       id=post_id,
+                       title=post_result['title']['rendered'],
+                       status=post_result['status'],
+                       url=post_result['link'])
+            
+            return {
+                'id': post_result['id'],
+                'link': post_result['link'],
+                'status': post_result['status'],
+                'title': post_result['title']['rendered'],
+                'wordpress_data': post_result
+            }
+        else:
+            error_msg = f"記事更新失敗: {response.status_code}"
             logger.error(error_msg, response=response.text[:200])
             raise Exception(f"{error_msg} - {response.text}")
     

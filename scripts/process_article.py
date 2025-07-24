@@ -8,12 +8,12 @@ import sys
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 # パスを追加してモジュールをインポート
 sys.path.append(str(Path(__file__).parent))
 
-from utils.logger import logger, log_processing_result
+from utils.logger import logger
 from utils.markdown_parser import MarkdownParser
 from utils.obsidian_processor import ObsidianProcessor, ImageOptimizer
 from wordpress_api import WordPressAPI
@@ -41,13 +41,9 @@ class ArticleProcessor:
             # 1. Markdownファイル解析
             article_data = self.markdown_parser.parse_file(markdown_file)
             
-            # ファイル名を保存（タイトル生成用）
-            self._current_file_stem = article_data['file_stem']
-            
             # 2. Obsidian固有処理
             base_dir = Path(markdown_file).parent
             images = self.obsidian_processor.extract_images(article_data['content'], base_dir)
-            article_data['images'] = images
             
             # Obsidian記法変換
             processed_content = self.obsidian_processor.process_obsidian_syntax(
@@ -77,15 +73,14 @@ class ArticleProcessor:
                         'id': wp_image['id'],
                         'alt_text': image_info['alt_text'],
                         'caption': image_info['caption'],
-                        'width': image_info['width']  # 幅情報を追加
+                        'width': image_info['width']
                     }
                     
                 except Exception as e:
                     logger.error(f"画像処理エラー（スキップ）: {e}", 
                                file=image_info['original_filename'])
-                    # 画像エラーでも処理を継続
             
-            # 4. 画像参照更新（HTML変換前に実行）
+            # 4. 画像参照更新
             updated_content = self.obsidian_processor.update_image_references(
                 processed_content, image_mapping
             )
@@ -96,12 +91,19 @@ class ArticleProcessor:
             # 6. WordPress投稿データ構築
             post_data = self._build_post_data(
                 article_data['metadata'], 
-                html_content, 
+                html_content,
+                article_data['file_stem'],
                 publish
             )
             
-            # 7. WordPress投稿
-            post_result = self.wordpress_api.create_post(post_data)
+            # 7. 既存投稿の確認と更新/作成
+            existing_post = self._find_existing_post(post_data['title'], article_data['metadata'])
+            
+            if existing_post:
+                logger.info("既存投稿を更新", id=existing_post['id'], title=post_data['title'])
+                post_result = self.wordpress_api.update_post(existing_post['id'], post_data)
+            else:
+                post_result = self.wordpress_api.create_post(post_data)
             
             # 処理時間計算
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -113,30 +115,14 @@ class ArticleProcessor:
                 'wordpress_id': post_result['id'],
                 'images_processed': len(image_mapping),
                 'processing_time_seconds': processing_time,
-                'image_mapping': image_mapping,
-                'post_data': post_result
+                'updated': existing_post is not None
             }
-            
-            log_processing_result(
-                markdown_file, 
-                True, 
-                url=post_result['link'],
-                images=len(image_mapping),
-                time_sec=f"{processing_time:.1f}"
-            )
             
             return result
             
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
             logger.error(f"記事処理失敗: {e}", file=Path(markdown_file).name)
-            
-            log_processing_result(
-                markdown_file,
-                False,
-                error=str(e),
-                time_sec=f"{processing_time:.1f}"
-            )
             
             return {
                 'success': False,
@@ -145,57 +131,38 @@ class ArticleProcessor:
                 'processing_time_seconds': processing_time
             }
     
-    def _build_post_data(self, metadata: Dict, html_content: str, publish: bool) -> Dict:
+    def _find_existing_post(self, title: str, metadata: Dict) -> Optional[Dict]:
+        """既存の投稿を検索"""
+        # GUIDで検索（Obsidianのユニークキー）
+        if 'param_guid' in metadata:
+            existing = self.wordpress_api.find_post_by_meta('obsidian_guid', metadata['param_guid'])
+            if existing:
+                return existing
+        
+        # タイトルで検索（下書き状態のみ）
+        return self.wordpress_api.find_draft_by_title(title)
+    
+    def _build_post_data(self, metadata: Dict, html_content: str, file_stem: str, publish: bool) -> Dict:
         """WordPress投稿データ構築"""
-        # タイトル抽出（優先順位: ファイル名 > YAMLメタデータ > H1タグ）
-        title = None
-        
-        # 1. YAMLメタデータのタイトル確認
-        if 'title' in metadata:
-            title = str(metadata['title']).strip()
-        
-        # 2. ファイル名からタイトル生成（優先）
+        # タイトル決定
+        title = metadata.get('title', '').strip()
         if not title:
-            file_stem = getattr(self, '_current_file_stem', None)
-            if file_stem:
-                title = self.markdown_parser.suggest_title_from_content("", file_stem)
-        
-        # 3. HTMLからH1タグ抽出（最後の手段）
-        if not title or title == "Untitled":
+            title = self.markdown_parser.suggest_title_from_content("", file_stem)
+        if title == "Untitled":
             title = self.markdown_parser.extract_title_from_html(html_content)
+        if title == "Untitled":
+            title = file_stem
         
-        # 4. 最終的にUntitledの場合はファイル名を使用
-        if title == "Untitled" and hasattr(self, '_current_file_stem'):
-            title = self._current_file_stem
-        
-        logger.info("タイトル決定", title=title)
-        
-        # カテゴリー処理
-        categories = []
-        if 'param_category' in metadata:
-            category_names = [cat.strip() for cat in metadata['param_category'].split(',')]
-            for cat_name in category_names:
-                cat_id = self.wordpress_api.get_or_create_category(cat_name)
-                categories.append(cat_id)
-        
-        # タグ処理
-        tags = []
-        if 'param_tags' in metadata:
-            tag_names = [tag.strip() for tag in metadata['param_tags'].split(',')]
-            tags = self.wordpress_api.get_or_create_tags(tag_names)
-        
-        # 投稿日時の処理（必ず文字列に変換）
-        if 'param_created' in metadata:
-            post_date = str(metadata['param_created'])
-        else:
-            post_date = datetime.now().isoformat()
+        # カテゴリー・タグ処理
+        categories = self._process_categories(metadata)
+        tags = self._process_tags(metadata)
         
         # 投稿データ
-        post_data = {
+        return {
             'title': title,
             'content': html_content,
             'status': 'publish' if publish else 'draft',
-            'date': post_date,
+            'date': str(metadata.get('param_created', datetime.now().isoformat())),
             'categories': categories,
             'tags': tags,
             'meta': {
@@ -204,14 +171,22 @@ class ArticleProcessor:
                 'processed_at': datetime.now().isoformat()
             }
         }
+    
+    def _process_categories(self, metadata: Dict) -> list:
+        """カテゴリー処理"""
+        if 'param_category' not in metadata:
+            return []
         
-        logger.debug("投稿データ構築完了", 
-                    title=title,
-                    categories=len(categories),
-                    tags=len(tags),
-                    date=post_date)
+        category_names = [cat.strip() for cat in metadata['param_category'].split(',')]
+        return [self.wordpress_api.get_or_create_category(name) for name in category_names]
+    
+    def _process_tags(self, metadata: Dict) -> list:
+        """タグ処理"""
+        if 'param_tags' not in metadata:
+            return []
         
-        return post_data
+        tag_names = [tag.strip() for tag in metadata['param_tags'].split(',')]
+        return self.wordpress_api.get_or_create_tags(tag_names)
 
 def load_config():
     """設定を環境変数から読み込み"""
@@ -222,7 +197,6 @@ def load_config():
         'repo_root': os.getenv('GITHUB_WORKSPACE', '.')
     }
     
-    # 必須設定チェック
     missing = [k for k, v in config.items() if not v and k != 'repo_root']
     if missing:
         logger.error(f"必須環境変数が未設定: {', '.join(missing)}")
@@ -239,16 +213,13 @@ def main():
     markdown_file = sys.argv[1]
     publish = '--publish' in sys.argv
     
-    # 設定読み込み
     config = load_config()
     
-    # ファイル存在チェック
     if not Path(markdown_file).exists():
         logger.error(f"ファイルが見つかりません: {markdown_file}")
         sys.exit(1)
     
     try:
-        # 記事処理実行
         processor = ArticleProcessor(
             config['repo_root'],
             config['wp_url'],
@@ -258,10 +229,10 @@ def main():
         
         result = processor.process(markdown_file, publish)
         
-        # 結果出力
         print(f"\n{'='*50}")
         if result['success']:
-            print(f"✅ 処理成功!")
+            action = "更新" if result.get('updated') else "作成"
+            print(f"✅ 処理成功! ({action})")
             print(f"📝 WordPress URL: {result['wordpress_url']}")
             print(f"🖼️ 処理画像数: {result['images_processed']}")
             print(f"⏱️ 処理時間: {result['processing_time_seconds']:.1f}秒")
@@ -269,7 +240,6 @@ def main():
             print(f"❌ 処理失敗: {result['error']}")
             sys.exit(1)
         
-        # 結果をJSONで保存（GitHub Actions用）
         with open('output.json', 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         
