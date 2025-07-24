@@ -17,3 +17,7 @@ pygments>=2.16.0
 # ユーティリティ
 python-dotenv>=1.0.0
 pathlib>=1.0.1
+
+# 品質チェック用（オプション）
+pyspellchecker>=0.7.0
+language-tool-python>=2.7.0

@@ -1,0 +1,266 @@
+name: ✅ 記事品質チェック
+
+on:
+  pull_request:
+    paths:
+      - 'articles/**/*.md'
+    types: [opened, synchronize]
+
+jobs:
+  quality-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+          pip install pyspellchecker language-tool-python
+      
+      - name: 🔍 変更ファイル検出
+        id: changed-files
+        uses: tj-actions/changed-files@v40
+        with:
+          files: |
+            articles/**/*.md
+          separator: "\n"
+      
+      - name: 🔎 品質チェック実行
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          cat > scripts/quality_checker.py << 'EOF'
+          import sys
+          import re
+          import json
+          from pathlib import Path
+          from typing import Dict, List
+          from utils.markdown_parser import MarkdownParser
+          from utils.obsidian_processor import ObsidianProcessor
+          
+          class QualityChecker:
+              def __init__(self):
+                  self.parser = MarkdownParser()
+                  self.processor = ObsidianProcessor('.')
+                  self.issues = []
+              
+              def check_article(self, markdown_file: str) -> Dict:
+                  article_data = self.parser.parse_file(markdown_file)
+                  content = article_data['content']
+                  metadata = article_data['metadata']
+                  
+                  results = {
+                      'file': markdown_file,
+                      'checks': {},
+                      'statistics': {},
+                      'issues': []
+                  }
+                  
+                  # 1. メタデータチェック
+                  results['checks']['metadata'] = self._check_metadata(metadata)
+                  
+                  # 2. 画像チェック
+                  results['checks']['images'] = self._check_images(content, Path(markdown_file).parent)
+                  
+                  # 3. リンクチェック
+                  results['checks']['links'] = self._check_links(content)
+                  
+                  # 4. 記事統計
+                  results['statistics'] = self._calculate_statistics(content)
+                  
+                  # 5. フォーマットチェック
+                  results['checks']['format'] = self._check_format(content)
+                  
+                  return results
+              
+              def _check_metadata(self, metadata: Dict) -> Dict:
+                  issues = []
+                  
+                  # 必須フィールドチェック
+                  required_fields = ['param_category', 'param_tags']
+                  for field in required_fields:
+                      if field not in metadata or not metadata[field]:
+                          issues.append(f"必須フィールド '{field}' が未設定")
+                  
+                  # 日付フォーマットチェック
+                  if 'param_created' in metadata:
+                      date_pattern = r'^\d{4}-\d{2}-\d{2}'
+                      if not re.match(date_pattern, str(metadata['param_created'])):
+                          issues.append("日付フォーマットが不正（YYYY-MM-DD形式を使用）")
+                  
+                  return {
+                      'passed': len(issues) == 0,
+                      'issues': issues
+                  }
+              
+              def _check_images(self, content: str, base_dir: Path) -> Dict:
+                  issues = []
+                  images = self.processor.extract_images(content, base_dir)
+                  
+                  for img in images:
+                      if not Path(img['local_path']).exists():
+                          issues.append(f"画像ファイルが見つかりません: {img['original_filename']}")
+                      
+                      # 画像サイズチェック（5MB以上は警告）
+                      if Path(img['local_path']).exists():
+                          size_mb = Path(img['local_path']).stat().st_size / (1024 * 1024)
+                          if size_mb > 5:
+                              issues.append(f"画像サイズが大きすぎます: {img['original_filename']} ({size_mb:.1f}MB)")
+                  
+                  return {
+                      'passed': len(issues) == 0,
+                      'issues': issues,
+                      'image_count': len(images)
+                  }
+              
+              def _check_links(self, content: str) -> Dict:
+                  issues = []
+                  
+                  # 外部リンクの抽出
+                  url_pattern = r'https?://[^\s\)"]+'
+                  urls = re.findall(url_pattern, content)
+                  
+                  # 内部リンクの抽出
+                  wiki_pattern = r'\[\[([^\]|]+)'
+                  wiki_links = re.findall(wiki_pattern, content)
+                  
+                  return {
+                      'passed': True,
+                      'external_links': len(urls),
+                      'internal_links': len(wiki_links),
+                      'issues': issues
+                  }
+              
+              def _calculate_statistics(self, content: str) -> Dict:
+                  # 見出し削除
+                  text_only = re.sub(r'^#+\s+.*$', '', content, flags=re.MULTILINE)
+                  # コードブロック削除
+                  text_only = re.sub(r'```[\s\S]*?```', '', text_only)
+                  # リンク削除
+                  text_only = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text_only)
+                  
+                  # 文字数計算
+                  char_count = len(text_only)
+                  # 単語数計算（日本語考慮）
+                  word_count = len(re.findall(r'\w+|[^\x00-\x7F]+', text_only))
+                  # 読了時間（400文字/分として計算）
+                  reading_time = max(1, round(char_count / 400))
+                  
+                  return {
+                      'character_count': char_count,
+                      'word_count': word_count,
+                      'reading_time_minutes': reading_time
+                  }
+              
+              def _check_format(self, content: str) -> Dict:
+                  issues = []
+                  
+                  # 見出しレベルチェック
+                  headings = re.findall(r'^(#+)\s+', content, flags=re.MULTILINE)
+                  if headings and headings[0] != '#':
+                      issues.append("最初の見出しはH1（#）を使用してください")
+                  
+                  # 連続空行チェック
+                  if '\n\n\n' in content:
+                      issues.append("3行以上の連続空行があります")
+                  
+                  return {
+                      'passed': len(issues) == 0,
+                      'issues': issues
+                  }
+          
+          if __name__ == "__main__":
+              checker = QualityChecker()
+              results = []
+              
+              for file in sys.argv[1:]:
+                  if Path(file).exists():
+                      result = checker.check_article(file)
+                      results.append(result)
+              
+              # 結果を保存
+              with open('quality_report.json', 'w', encoding='utf-8') as f:
+                  json.dump(results, f, ensure_ascii=False, indent=2)
+          EOF
+          
+          # チェック実行
+          python scripts/quality_checker.py ${{ steps.changed-files.outputs.all_changed_files }}
+      
+      - name: 📊 品質レポート生成
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          echo "## ✅ 記事品質チェック結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f quality_report.json ]; then
+            cat quality_report.json | jq -r '.[] | 
+              "### 📄 " + (.file | split("/") | last) + "\n" +
+              "#### 📊 統計情報\n" +
+              "- 文字数: " + (.statistics.character_count | tostring) + "\n" +
+              "- 推定読了時間: " + (.statistics.reading_time_minutes | tostring) + "分\n" +
+              "- 画像数: " + (.checks.images.image_count | tostring) + "\n" +
+              "- 外部リンク: " + (.checks.links.external_links | tostring) + "\n\n" +
+              "#### 🔍 チェック結果\n" +
+              (if .checks.metadata.passed then "✅ メタデータ: OK" else "❌ メタデータ: " + (.checks.metadata.issues | join(", ")) end) + "\n" +
+              (if .checks.images.passed then "✅ 画像: OK" else "❌ 画像: " + (.checks.images.issues | join(", ")) end) + "\n" +
+              (if .checks.format.passed then "✅ フォーマット: OK" else "❌ フォーマット: " + (.checks.format.issues | join(", ")) end) + "\n"
+            ' >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: 💬 PRコメントで結果共有
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('quality_report.json')) return;
+            
+            const report = JSON.parse(fs.readFileSync('quality_report.json', 'utf8'));
+            let comment = '## ✅ 記事品質チェック結果\n\n';
+            
+            let hasIssues = false;
+            
+            for (const result of report) {
+              const filename = result.file.split('/').pop();
+              comment += `### 📄 ${filename}\n\n`;
+              
+              // 統計情報
+              comment += `📊 **統計:** ${result.statistics.character_count}文字 / 読了${result.statistics.reading_time_minutes}分\n\n`;
+              
+              // 問題があれば表示
+              const allChecks = Object.values(result.checks);
+              const failedChecks = allChecks.filter(check => !check.passed);
+              
+              if (failedChecks.length > 0) {
+                hasIssues = true;
+                comment += '⚠️ **改善が必要な項目:**\n';
+                for (const check of failedChecks) {
+                  for (const issue of check.issues) {
+                    comment += `- ${issue}\n`;
+                  }
+                }
+              } else {
+                comment += '✅ すべてのチェックに合格しました！\n';
+              }
+              
+              comment += '\n';
+            }
+            
+            if (hasIssues) {
+              comment += '> 💡 上記の項目を確認し、必要に応じて修正してください。';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

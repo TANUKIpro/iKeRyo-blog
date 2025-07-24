@@ -4,15 +4,22 @@ on:
   push:
     paths:
       - 'assets/images/**'
+      - 'articles/**/*.png'
+      - 'articles/**/*.jpg'
+      - 'articles/**/*.jpeg'
+      - 'articles/**/*.gif'
+      - 'articles/**/*.webp'
 
 jobs:
   optimize-images:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 2
       
       - name: 🐍 Python環境セットアップ
         uses: actions/setup-python@v4
@@ -21,22 +28,126 @@ jobs:
       
       - name: 📦 依存関係インストール
         run: |
-          pip install Pillow requests
+          pip install Pillow requests pyyaml
       
       - name: 🔍 変更画像検出
         id: changed-images
-        run: |
-          CHANGED_IMAGES=$(git diff --name-only HEAD~1 HEAD | grep -E '\.(jpg|jpeg|png|gif|webp)$')
-          echo "images=$CHANGED_IMAGES" >> $GITHUB_OUTPUT
+        uses: tj-actions/changed-files@v40
+        with:
+          files: |
+            **/*.jpg
+            **/*.jpeg
+            **/*.png
+            **/*.gif
+            **/*.webp
+          separator: " "
       
       - name: 🖼️ 画像最適化実行
-        if: steps.changed-images.outputs.images != ''
+        if: steps.changed-images.outputs.any_changed == 'true'
         run: |
-          python scripts/image_optimizer.py ${{ steps.changed-images.outputs.images }}
+          cat > scripts/batch_image_optimizer.py << 'EOF'
+          import sys
+          import json
+          from pathlib import Path
+          sys.path.append(str(Path(__file__).parent))
+          
+          from utils.obsidian_processor import ImageOptimizer
+          
+          def optimize_images(image_files):
+              optimizer = ImageOptimizer("temp")
+              results = []
+              
+              for image_file in image_files:
+                  if not Path(image_file).exists():
+                      continue
+                      
+                  try:
+                      print(f"🔄 最適化中: {image_file}")
+                      result = optimizer.optimize(image_file)
+                      
+                      # 元のファイルを最適化されたファイルで置き換え
+                      if not result.get('is_gif') and 'error' not in result:
+                          optimized_path = Path(result['optimized_path'])
+                          original_path = Path(result['original_path'])
+                          
+                          # バックアップ作成
+                          backup_path = original_path.with_suffix('.backup' + original_path.suffix)
+                          original_path.rename(backup_path)
+                          
+                          # 最適化ファイルを元の場所に移動
+                          optimized_path.rename(original_path)
+                          
+                          # バックアップ削除
+                          backup_path.unlink()
+                          
+                          results.append({
+                              'file': image_file,
+                              'size_reduction': result['size_reduction'],
+                              'status': 'optimized'
+                          })
+                      else:
+                          results.append({
+                              'file': image_file,
+                              'size_reduction': 0,
+                              'status': 'skipped' if result.get('is_gif') else 'error'
+                          })
+                          
+                  except Exception as e:
+                      print(f"❌ エラー: {image_file} - {str(e)}")
+                      results.append({
+                          'file': image_file,
+                          'error': str(e),
+                          'status': 'error'
+                      })
+              
+              # レポート保存
+              with open('optimization_report.json', 'w') as f:
+                  json.dump(results, f, indent=2)
+              
+              return results
+          
+          if __name__ == "__main__":
+              files = sys.argv[1:]
+              results = optimize_images(files)
+              
+              # サマリー出力
+              optimized = len([r for r in results if r['status'] == 'optimized'])
+              skipped = len([r for r in results if r['status'] == 'skipped'])
+              errors = len([r for r in results if r['status'] == 'error'])
+              
+              print(f"\n📊 最適化完了: {optimized}件成功, {skipped}件スキップ, {errors}件エラー")
+          EOF
+          
+          python scripts/batch_image_optimizer.py ${{ steps.changed-images.outputs.all_changed_files }}
       
       - name: 📊 最適化結果レポート
+        if: steps.changed-images.outputs.any_changed == 'true'
         run: |
           echo "## 🖼️ 画像最適化結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
           if [ -f optimization_report.json ]; then
-            cat optimization_report.json | jq -r '"- " + .filename + ": " + (.size_reduction | tostring) + "% 削減"' >> $GITHUB_STEP_SUMMARY
+            cat optimization_report.json | jq -r '.[] | 
+              if .status == "optimized" then
+                "### ✅ " + .file + "\n- サイズ削減: " + (.size_reduction | tostring) + "%\n"
+              elif .status == "skipped" then
+                "### ⏭️ " + .file + "\n- GIFファイルのためスキップ\n"
+              else
+                "### ❌ " + .file + "\n- エラー: " + (.error // "不明"） + "\n"
+              end' >> $GITHUB_STEP_SUMMARY
+              
+            TOTAL_REDUCTION=$(cat optimization_report.json | jq '[.[] | select(.status == "optimized") | .size_reduction] | add / length')
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "**平均サイズ削減率:** ${TOTAL_REDUCTION}%" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: 💾 変更をコミット
+        if: steps.changed-images.outputs.any_changed == 'true'
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .
+            git commit -m "🖼️ 画像最適化完了"
+            git push
           fi

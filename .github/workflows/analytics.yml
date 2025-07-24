@@ -1,0 +1,194 @@
+name: 📊 記事統計レポート
+
+on:
+  schedule:
+    # 毎週日曜日の午前9時（JST）に実行
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  generate-analytics:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+          pip install matplotlib pandas
+      
+      - name: 📊 統計情報生成
+        run: |
+          cat > scripts/generate_analytics.py << 'EOF'
+          import json
+          import matplotlib.pyplot as plt
+          import pandas as pd
+          from pathlib import Path
+          from datetime import datetime
+          from collections import defaultdict
+          from utils.markdown_parser import MarkdownParser
+          
+          def analyze_articles():
+              parser = MarkdownParser()
+              
+              # 記事データ収集
+              articles_data = []
+              
+              # draftsフォルダ
+              for file in Path('articles/drafts').rglob('*.md'):
+                  data = parser.parse_file(file)
+                  articles_data.append({
+                      'file': str(file),
+                      'status': 'draft',
+                      'metadata': data['metadata'],
+                      'content_length': len(data['content']),
+                      'created': data['metadata'].get('param_created', '')
+                  })
+              
+              # publishedフォルダ
+              for file in Path('articles/published').rglob('*.md'):
+                  data = parser.parse_file(file)
+                  articles_data.append({
+                      'file': str(file),
+                      'status': 'published',
+                      'metadata': data['metadata'],
+                      'content_length': len(data['content']),
+                      'created': data['metadata'].get('param_created', '')
+                  })
+              
+              # 統計計算
+              stats = {
+                  'total_articles': len(articles_data),
+                  'draft_count': len([a for a in articles_data if a['status'] == 'draft']),
+                  'published_count': len([a for a in articles_data if a['status'] == 'published']),
+                  'total_characters': sum(a['content_length'] for a in articles_data),
+                  'avg_content_length': sum(a['content_length'] for a in articles_data) / len(articles_data) if articles_data else 0,
+                  'categories': defaultdict(int),
+                  'tags': defaultdict(int),
+                  'articles_by_month': defaultdict(int)
+              }
+              
+              # カテゴリ・タグ集計
+              for article in articles_data:
+                  if 'param_category' in article['metadata']:
+                      categories = article['metadata']['param_category'].split(',')
+                      for cat in categories:
+                          stats['categories'][cat.strip()] += 1
+                  
+                  if 'param_tags' in article['metadata']:
+                      tags = article['metadata']['param_tags'].split(',')
+                      for tag in tags:
+                          stats['tags'][tag.strip()] += 1
+                  
+                  # 月別集計
+                  if article['created']:
+                      try:
+                          date = datetime.fromisoformat(article['created'][:10])
+                          month_key = date.strftime('%Y-%m')
+                          stats['articles_by_month'][month_key] += 1
+                      except:
+                          pass
+              
+              return stats, articles_data
+          
+          def create_visualizations(stats):
+              # 1. ステータス別記事数
+              plt.figure(figsize=(10, 6))
+              plt.subplot(2, 2, 1)
+              statuses = ['下書き', '公開済み']
+              counts = [stats['draft_count'], stats['published_count']]
+              plt.pie(counts, labels=statuses, autopct='%1.1f%%')
+              plt.title('記事ステータス分布')
+              
+              # 2. カテゴリ別記事数
+              plt.subplot(2, 2, 2)
+              if stats['categories']:
+                  categories = dict(sorted(stats['categories'].items(), key=lambda x: x[1], reverse=True)[:10])
+                  plt.bar(categories.keys(), categories.values())
+                  plt.xticks(rotation=45, ha='right')
+                  plt.title('カテゴリ別記事数（上位10）')
+              
+              # 3. 月別投稿数
+              plt.subplot(2, 2, 3)
+              if stats['articles_by_month']:
+                  months = sorted(stats['articles_by_month'].items())
+                  plt.plot([m[0] for m in months], [m[1] for m in months], marker='o')
+                  plt.xticks(rotation=45, ha='right')
+                  plt.title('月別投稿数推移')
+              
+              # 4. タグクラウド風（上位20タグ）
+              plt.subplot(2, 2, 4)
+              if stats['tags']:
+                  tags = dict(sorted(stats['tags'].items(), key=lambda x: x[1], reverse=True)[:20])
+                  plt.barh(list(tags.keys()), list(tags.values()))
+                  plt.title('人気タグ（上位20）')
+              
+              plt.tight_layout()
+              plt.savefig('analytics_report.png', dpi=150, bbox_inches='tight')
+              plt.close()
+          
+          if __name__ == "__main__":
+              stats, articles = analyze_articles()
+              
+              # レポート生成
+              report = {
+                  'generated_at': datetime.now().isoformat(),
+                  'statistics': {
+                      '総記事数': stats['total_articles'],
+                      '下書き': stats['draft_count'],
+                      '公開済み': stats['published_count'],
+                      '総文字数': f"{stats['total_characters']:,}",
+                      '平均文字数': f"{stats['avg_content_length']:.0f}",
+                      'カテゴリ数': len(stats['categories']),
+                      'タグ数': len(stats['tags'])
+                  },
+                  'top_categories': dict(sorted(stats['categories'].items(), key=lambda x: x[1], reverse=True)[:5]),
+                  'top_tags': dict(sorted(stats['tags'].items(), key=lambda x: x[1], reverse=True)[:10])
+              }
+              
+              # JSON保存
+              with open('analytics_report.json', 'w', encoding='utf-8') as f:
+                  json.dump(report, f, ensure_ascii=False, indent=2)
+              
+              # ビジュアライゼーション作成
+              create_visualizations(stats)
+              
+              print("📊 統計レポート生成完了")
+          EOF
+          
+          python scripts/generate_analytics.py
+      
+      - name: 📤 レポートアップロード
+        uses: actions/upload-artifact@v3
+        with:
+          name: analytics-report
+          path: |
+            analytics_report.json
+            analytics_report.png
+          retention-days: 30
+      
+      - name: 📊 サマリー表示
+        run: |
+          echo "## 📊 記事統計レポート" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f analytics_report.json ]; then
+            cat analytics_report.json | jq -r '
+              "### 📈 基本統計\n" +
+              (.statistics | to_entries | map("- **" + .key + ":** " + (.value | tostring)) | join("\n")) +
+              "\n\n### 🏷️ 人気カテゴリ TOP5\n" +
+              (.top_categories | to_entries | map(((.key | tostring) + 1) | tostring + ". " + .value.key + " (" + (.value.value | tostring) + "記事)") | join("\n")) +
+              "\n\n### 🔖 人気タグ TOP10\n" +
+              (.top_tags | to_entries | map(((.key | tostring) + 1) | tostring + ". " + .value.key + " (" + (.value.value | tostring) + "記事)") | join("\n"))
+            ' >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📊 詳細なグラフは[Artifactsからダウンロード](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})してください。" >> $GITHUB_STEP_SUMMARY
+          fi
