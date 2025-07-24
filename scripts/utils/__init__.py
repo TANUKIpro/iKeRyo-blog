@@ -17,6 +17,13 @@ except ImportError:
     ObsidianProcessor = None
     ImageOptimizer = None
 
+try:
+    from .code_highlighter import CodeHighlighter, enhance_code_blocks_with_styler
+    __all__.extend(['CodeHighlighter', 'enhance_code_blocks_with_styler'])
+except ImportError:
+    CodeHighlighter = None
+    enhance_code_blocks_with_styler = None
+
 # 個別インポートも可能にする
 def get_image_optimizer():
     """ImageOptimizerのみを取得（他の依存関係なし）"""

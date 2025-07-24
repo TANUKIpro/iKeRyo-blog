@@ -9,6 +9,7 @@ import markdown
 from typing import Dict, Tuple
 from pathlib import Path
 from utils.logger import logger
+from utils.code_highlighter import CodeHighlighter, enhance_code_blocks_with_styler
 
 
 class MarkdownParser:
@@ -75,6 +76,9 @@ class MarkdownParser:
     
     def to_html(self, markdown_content: str) -> str:
         """Markdown→HTML変換"""
+        # Code Styler記法を先に処理
+        markdown_content = self._process_code_styler_blocks(markdown_content)
+        
         # リセット（前回の変換状態をクリア）
         self.md.reset()
         
@@ -85,11 +89,32 @@ class MarkdownParser:
         html = self.md.convert(markdown_content)
         
         # カスタム処理
-        html = self._process_code_diff_syntax(html)
+        html = self._enhance_tables(html)
         html = self._process_url_cards(html)
+        
+        # 特殊マーカーを実際のHTMLに戻す
+        html = html.replace('%%%CODEBLOCK_START%%%', '').replace('%%%CODEBLOCK_END%%%', '')
         
         logger.debug("HTML変換完了", length=len(html))
         return html
+    
+    def _process_code_styler_blocks(self, content: str) -> str:
+        """Code Styler記法のコードブロックを処理"""
+        code_highlighter = CodeHighlighter()
+        
+        # ```言語名 スタイル:行番号 の形式を検出
+        pattern = r'```(\S+(?:\s+[^\n]+)?)\n(.*?)```'
+        
+        def replace_code_block(match):
+            # CodeHighlighterで処理してHTMLを生成
+            html = code_highlighter.process_code_block(match)
+            # Markdownパーサーがさらに処理しないよう、特殊なマーカーで囲む
+            return f'%%%CODEBLOCK_START%%%{html}%%%CODEBLOCK_END%%%'
+        
+        # コードブロックを置換
+        content = re.sub(pattern, replace_code_block, content, flags=re.DOTALL | re.MULTILINE)
+        
+        return content
     
     def _process_strikethrough(self, content: str) -> str:
         """打消し記法（~~text~~）を<del>タグに変換"""
@@ -103,58 +128,63 @@ class MarkdownParser:
         
         return processed
     
-    def _process_code_diff_syntax(self, html: str) -> str:
-        """コードブロック差分表示記法の処理"""
-        pattern = r'<code class="([^"]*language-\w+[^"]*)"([^>]*)>'
+    def _enhance_tables(self, html: str) -> str:
+        """テーブルにWordPress標準のスタイルを追加"""
+        # シンプルな<table>タグを検出して拡張
+        pattern = r'<table>'
         
-        def process_code_tag(match):
-            classes = match.group(1)
-            attributes = match.group(2) or ""
-            
-            # 差分情報を検出
-            add_lines = self._extract_line_numbers(attributes, 'add')
-            error_lines = self._extract_line_numbers(attributes, 'error')
-            
-            # クラスとデータ属性を追加
-            if add_lines:
-                classes += " has-additions"
-                attributes += f' data-add-lines="{",".join(map(str, add_lines))}"'
-            
-            if error_lines:
-                classes += " has-errors"  
-                attributes += f' data-error-lines="{",".join(map(str, error_lines))}"'
-            
-            return f'<code class="{classes}"{attributes}>'
+        # WordPress標準のテーブルスタイル
+        table_style = '''style="width: 100%; margin: 1.5rem 0; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);"'''
         
-        return re.sub(pattern, process_code_tag, html)
-    
-    def _extract_line_numbers(self, text: str, prefix: str) -> list:
-        """行番号範囲を抽出"""
-        pattern = rf'{prefix}:([\d,-]+)'
-        match = re.search(pattern, text)
+        replacement = f'<table class="wp-table" {table_style}>'
+        html = re.sub(pattern, replacement, html)
         
-        if not match:
-            return []
+        # th要素のスタイル
+        html = re.sub(
+            r'<th>',
+            '<th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #1f2937; font-size: 0.9rem; background: #f8fafc; border-bottom: 2px solid #e5e7eb;">',
+            html
+        )
         
-        ranges = match.group(1).split(',')
-        lines = []
+        # td要素のスタイル
+        html = re.sub(
+            r'<td>',
+            '<td style="padding: 12px 16px; border-bottom: 1px solid #f3f4f6; font-size: 0.95rem;">',
+            html
+        )
         
-        for range_str in ranges:
-            if '-' in range_str:
-                start, end = map(int, range_str.split('-'))
-                lines.extend(range(start, end + 1))
-            else:
-                lines.append(int(range_str))
+        # thead要素のスタイル
+        html = re.sub(
+            r'<thead>',
+            '<thead style="background: #f8fafc;">',
+            html
+        )
         
-        return lines
+        return html
     
     def _process_url_cards(self, html: str) -> str:
         """URLカード用のクラス付与"""
         # 単独行のURLにクラスを付与
         pattern = r'<p><a href="(https?://[^"]+)"[^>]*>([^<]+)</a></p>'
-        replacement = r'<p><a href="\1" class="url-card-target">\2</a></p>'
         
-        return re.sub(pattern, replacement, html)
+        def create_url_card(match):
+            url = match.group(1)
+            text = match.group(2)
+            
+            # URLカードのHTML（スタイル込み）
+            card_html = f'''<a href="{url}" class="url-card" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 12px; margin: 1.5rem 0; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #374151; transition: all 0.2s ease;">
+    <div class="url-card-image" style="width: 48px; height: 48px; background: #e5e7eb; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+        <span style="color: #9ca3af; font-size: 1.2rem;">🔗</span>
+    </div>
+    <div class="url-card-content" style="flex: 1; min-width: 0;">
+        <div class="url-card-title" style="font-weight: 600; color: #1f2937; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{text}</div>
+        <div class="url-card-url" style="color: #6b7280; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</div>
+    </div>
+</a>'''
+            
+            return card_html
+        
+        return re.sub(pattern, create_url_card, html)
     
     def extract_title_from_html(self, html: str) -> str:
         """HTMLから最初のH1タグをタイトルとして抽出"""

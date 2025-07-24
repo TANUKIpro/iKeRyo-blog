@@ -25,7 +25,6 @@ class ObsidianProcessor:
         images = []
         
         # Obsidian画像記法: ![[image.png | caption | width]]
-        # 改善: パスを正しく取得するため、最初のグループは]以外の全文字を許可
         pattern = r'!\[\[([^\]]+?)(?:\s*\|\s*([^|\]]+?))?(?:\s*\|\s*(\d+))?\]\]'
         
         for match in re.finditer(pattern, content):
@@ -56,7 +55,7 @@ class ObsidianProcessor:
                 images.append({
                     'original_filename': filename,
                     'local_path': str(image_path),
-                    'caption': caption,  # キャプションをそのまま保持（HTMLタグ含む）
+                    'caption': caption,
                     'width': width,
                     'match_text': match.group(0),
                     'alt_text': self._generate_alt_text(filename, caption)
@@ -101,7 +100,7 @@ class ObsidianProcessor:
             search_candidates = [
                 base_dir / test_filename,
                 self.assets_dir / test_filename,
-                self.repo_root / test_filename,  # フルパスの場合
+                self.repo_root / test_filename,
             ]
             
             # 年月ディレクトリ構造も検索
@@ -178,17 +177,21 @@ class ObsidianProcessor:
         return updated_content
     
     def _create_figure_html(self, wp_info: Dict) -> str:
-        """WordPress画像から<figure>構造のHTMLを生成"""
+        """WordPress画像から<figure>構造のHTMLを生成（中央寄せ対応）"""
         img_attrs = [
             f'src="{wp_info["url"]}"',
             f'alt="{wp_info["alt_text"]}"'
         ]
+        
+        # 画像のスタイル（常に中央寄せ）
+        img_style_parts = ['display: block', 'margin: 0 auto']
         
         # 幅指定がある場合
         size_class = ""
         if wp_info.get('width'):
             width = wp_info['width']
             img_attrs.append(f'width="{width}"')
+            img_style_parts.append(f'max-width: {width}px')
             
             # WordPressのサイズクラスを決定
             if width <= 150:
@@ -199,20 +202,28 @@ class ObsidianProcessor:
                 size_class = " size-large"
             else:
                 size_class = " size-full"
+        else:
+            # 幅指定がない場合は最大幅100%
+            img_style_parts.append('max-width: 100%')
+            size_class = " size-full"
         
+        # imgタグにスタイルを追加
+        img_attrs.append(f'style="{"; ".join(img_style_parts)}"')
         img_tag = f'<img {" ".join(img_attrs)} />'
+        
+        # figure要素のスタイル（中央寄せ）
+        figure_style = 'text-align: center; margin: 1.5rem auto;'
         
         # キャプションがある場合は<figure>で囲む
         if wp_info.get('caption'):
-            # キャプション内の<br>タグはそのまま保持
-            # aligncenterクラスで中央寄せ
-            figure_html = f'''<figure class="wp-block-image aligncenter{size_class}">
+            # aligncenterクラスとWordPress標準のクラスを追加
+            figure_html = f'''<figure class="wp-block-image aligncenter{size_class}" style="{figure_style}">
     {img_tag}
-    <figcaption class="wp-element-caption">{wp_info["caption"]}</figcaption>
+    <figcaption class="wp-element-caption" style="margin-top: 0.5rem; font-size: 0.875rem; color: #666;">{wp_info["caption"]}</figcaption>
 </figure>'''
         else:
             # キャプションがない場合も中央寄せ
-            figure_html = f'<figure class="wp-block-image aligncenter{size_class}">{img_tag}</figure>'
+            figure_html = f'<figure class="wp-block-image aligncenter{size_class}" style="{figure_style}">{img_tag}</figure>'
         
         return figure_html
 
