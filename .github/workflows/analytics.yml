@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: 🐍 Python環境セットアップ
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
@@ -166,13 +166,14 @@ jobs:
           python scripts/generate_analytics.py
       
       - name: 📤 レポートアップロード
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: analytics-report
           path: |
             analytics_report.json
             analytics_report.png
           retention-days: 30
+          compression-level: 9
       
       - name: 📊 サマリー表示
         run: |
