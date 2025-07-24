@@ -8,7 +8,7 @@ import yaml
 import markdown
 from typing import Dict, Tuple
 from pathlib import Path
-from .logger import logger
+from utils.logger import logger
 
 
 class MarkdownParser:
@@ -18,17 +18,19 @@ class MarkdownParser:
         self.md = markdown.Markdown(
             extensions=[
                 'codehilite',
-                'fenced_code',
+                'fenced_code', 
                 'tables',
                 'toc',
                 'footnotes',
                 'attr_list'
+                # nl2br は削除（画像キャプション内改行を防ぐため）
             ],
             extension_configs={
                 'codehilite': {
                     'css_class': 'highlight',
                     'use_pygments': False
-                }
+                },
+                'tables': {}  # テーブル拡張を明示的に設定
             }
         )
     
@@ -77,6 +79,9 @@ class MarkdownParser:
         # リセット（前回の変換状態をクリア）
         self.md.reset()
         
+        # 打消し記法の前処理
+        markdown_content = self._process_strikethrough(markdown_content)
+        
         # 基本HTML変換
         html = self.md.convert(markdown_content)
         
@@ -86,6 +91,19 @@ class MarkdownParser:
         
         logger.debug("HTML変換完了", length=len(html))
         return html
+    
+    def _process_strikethrough(self, content: str) -> str:
+        """打消し記法（~~text~~）を<del>タグに変換"""
+        # ~~で囲まれたテキストを<del>タグに変換
+        pattern = r'~~([^~\n]+)~~'
+        replacement = r'<del>\1</del>'
+        
+        processed = re.sub(pattern, replacement, content)
+        
+        if processed != content:
+            logger.debug("打消し記法を変換", count=len(re.findall(pattern, content)))
+        
+        return processed
     
     def _process_code_diff_syntax(self, html: str) -> str:
         """コードブロック差分表示記法の処理"""
@@ -148,5 +166,33 @@ class MarkdownParser:
             # HTMLタグを除去
             title = re.sub(r'<[^>]+>', '', h1_match.group(1)).strip()
             return title
+        
+        return "Untitled"
+    
+    def suggest_title_from_content(self, markdown_content: str, file_stem: str = None) -> str:
+        """コンテンツからタイトルを推測"""
+        # 1. ファイル名を優先（拡張子なし）
+        if file_stem and file_stem.lower() not in ['untitled', 'new', 'draft']:
+            # ファイル名を整形
+            title = file_stem.replace('-', ' ').replace('_', ' ')
+            # 先頭を大文字に
+            title = ' '.join(word.capitalize() for word in title.split())
+            logger.debug("ファイル名からタイトル生成", original=file_stem, title=title)
+            return title
+        
+        # 2. 最初のH1タグから抽出
+        h1_match = re.search(r'^#\s+(.+)', markdown_content, re.MULTILINE)
+        if h1_match:
+            title = h1_match.group(1).strip()
+            logger.debug("H1タグからタイトル抽出", title=title)
+            return title
+        
+        # 3. 最初の行をタイトルとして使用
+        lines = markdown_content.strip().split('\n')
+        for line in lines:
+            clean_line = line.strip()
+            if clean_line and not clean_line.startswith('#'):
+                logger.debug("最初の行からタイトル生成", title=clean_line[:50])
+                return clean_line[:50]  # 最大50文字
         
         return "Untitled"

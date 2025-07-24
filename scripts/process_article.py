@@ -41,6 +41,9 @@ class ArticleProcessor:
             # 1. Markdownファイル解析
             article_data = self.markdown_parser.parse_file(markdown_file)
             
+            # ファイル名を保存（タイトル生成用）
+            self._current_file_stem = article_data['file_stem']
+            
             # 2. Obsidian固有処理
             base_dir = Path(markdown_file).parent
             images = self.obsidian_processor.extract_images(article_data['content'], base_dir)
@@ -73,7 +76,8 @@ class ArticleProcessor:
                         'url': wp_image['url'],
                         'id': wp_image['id'],
                         'alt_text': image_info['alt_text'],
-                        'caption': image_info['caption']
+                        'caption': image_info['caption'],
+                        'width': image_info['width']  # 幅情報を追加
                     }
                     
                 except Exception as e:
@@ -81,7 +85,7 @@ class ArticleProcessor:
                                file=image_info['original_filename'])
                     # 画像エラーでも処理を継続
             
-            # 4. 画像参照更新
+            # 4. 画像参照更新（HTML変換前に実行）
             updated_content = self.obsidian_processor.update_image_references(
                 processed_content, image_mapping
             )
@@ -143,8 +147,28 @@ class ArticleProcessor:
     
     def _build_post_data(self, metadata: Dict, html_content: str, publish: bool) -> Dict:
         """WordPress投稿データ構築"""
-        # タイトル抽出
-        title = self.markdown_parser.extract_title_from_html(html_content)
+        # タイトル抽出（優先順位: ファイル名 > YAMLメタデータ > H1タグ）
+        title = None
+        
+        # 1. YAMLメタデータのタイトル確認
+        if 'title' in metadata:
+            title = str(metadata['title']).strip()
+        
+        # 2. ファイル名からタイトル生成（優先）
+        if not title:
+            file_stem = getattr(self, '_current_file_stem', None)
+            if file_stem:
+                title = self.markdown_parser.suggest_title_from_content("", file_stem)
+        
+        # 3. HTMLからH1タグ抽出（最後の手段）
+        if not title or title == "Untitled":
+            title = self.markdown_parser.extract_title_from_html(html_content)
+        
+        # 4. 最終的にUntitledの場合はファイル名を使用
+        if title == "Untitled" and hasattr(self, '_current_file_stem'):
+            title = self._current_file_stem
+        
+        logger.info("タイトル決定", title=title)
         
         # カテゴリー処理
         categories = []
@@ -160,16 +184,22 @@ class ArticleProcessor:
             tag_names = [tag.strip() for tag in metadata['param_tags'].split(',')]
             tags = self.wordpress_api.get_or_create_tags(tag_names)
         
+        # 投稿日時の処理（必ず文字列に変換）
+        if 'param_created' in metadata:
+            post_date = str(metadata['param_created'])
+        else:
+            post_date = datetime.now().isoformat()
+        
         # 投稿データ
         post_data = {
             'title': title,
             'content': html_content,
             'status': 'publish' if publish else 'draft',
-            'date': metadata.get('param_created', datetime.now().isoformat()),
+            'date': post_date,
             'categories': categories,
             'tags': tags,
             'meta': {
-                'obsidian_guid': metadata.get('param_guid', ''),
+                'obsidian_guid': str(metadata.get('param_guid', '')),
                 'original_markdown': True,
                 'processed_at': datetime.now().isoformat()
             }
@@ -178,7 +208,8 @@ class ArticleProcessor:
         logger.debug("投稿データ構築完了", 
                     title=title,
                     categories=len(categories),
-                    tags=len(tags))
+                    tags=len(tags),
+                    date=post_date)
         
         return post_data
 

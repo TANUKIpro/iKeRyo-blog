@@ -39,30 +39,68 @@ class ObsidianProcessor:
                 images.append({
                     'original_filename': filename,
                     'local_path': str(image_path),
-                    'caption': caption,
+                    'caption': caption,  # キャプションをそのまま保持
                     'width': width,
                     'match_text': match.group(0),
                     'alt_text': self._generate_alt_text(filename, caption)
                 })
-                logger.debug("画像検出", filename=filename)
+                logger.debug("画像検出", filename=filename, caption=caption, width=width)
             else:
                 logger.warning(f"画像ファイル未発見: {filename}")
         
         return images
     
+    def _generate_alt_text(self, filename: str, caption: str) -> str:
+        """alt text自動生成（HTMLタグ変換なし）"""
+        if caption:
+            # キャプションをそのまま使用（HTMLタグ変換しない）
+            return caption.strip()
+        
+        # ファイル名からalt text生成
+        base_name = Path(filename).stem
+        alt_text = re.sub(r'[-_]', ' ', base_name)
+        alt_text = re.sub(r'\d{8}|\d{4}-\d{2}-\d{2}', '', alt_text)
+        
+        return alt_text.strip() or 'image'
+    
     def _resolve_image_path(self, filename: str, base_dir: Path) -> Optional[Path]:
         """画像ファイルパスを解決"""
-        # 検索優先順位
-        search_paths = [
-            base_dir / filename,  # 同一ディレクトリ
-            *list(self.assets_dir.rglob(filename)),  # assets/images内を再帰検索
+        logger.debug(f"画像検索開始: {filename}")
+        
+        # 検索パス候補
+        search_candidates = [
+            # 1. 同一ディレクトリ
+            base_dir / filename,
+            # 2. assets/images 直下
+            self.assets_dir / filename,
+            # 3. assets/images の年/月構造
+            self.assets_dir / "2025" / "07" / filename,
+            # 4. 記事名ベースのフォルダ
+            base_dir / f"{base_dir.stem}_assets" / filename,
         ]
         
-        for path in search_paths:
+        # 候補パスをチェック
+        for path in search_candidates:
+            logger.debug(f"検索中: {path}")
             if path.exists() and path.is_file():
-                logger.debug("画像パス解決", original=filename, resolved=str(path))
+                logger.info(f"画像発見: {filename} -> {path}")
                 return path
         
+        # 再帰検索（重い処理なので最後に実行）
+        logger.debug("再帰検索開始...")
+        for path in self.assets_dir.rglob(filename):
+            if path.is_file():
+                logger.info(f"画像発見（再帰検索）: {filename} -> {path}")
+                return path
+        
+        # プロジェクト全体での検索（最後の手段）
+        logger.debug("プロジェクト全体検索...")
+        for path in self.repo_root.rglob(filename):
+            if path.is_file() and not str(path).startswith('.git'):
+                logger.info(f"画像発見（全体検索）: {filename} -> {path}")
+                return path
+        
+        logger.warning(f"画像ファイル未発見: {filename}")
         return None
     
     def _generate_alt_text(self, filename: str, caption: str) -> str:
@@ -104,12 +142,37 @@ class ObsidianProcessor:
     def update_image_references(self, content: str, image_mapping: Dict) -> str:
         """画像参照をWordPress URLに更新"""
         for match_text, wp_info in image_mapping.items():
-            # Obsidian記法 → 標準Markdown記法
-            markdown_image = f"![{wp_info['alt_text']}]({wp_info['url']})"
-            content = content.replace(match_text, markdown_image)
+            # Obsidian記法を<figure>構造のHTMLに変換
+            figure_html = self._create_figure_html(wp_info)
+            content = content.replace(match_text, figure_html)
         
         logger.debug("画像参照更新完了", count=len(image_mapping))
         return content
+    
+    def _create_figure_html(self, wp_info: Dict) -> str:
+        """WordPress画像から<figure>構造のHTMLを生成"""
+        img_attrs = [
+            f'src="{wp_info["url"]}"',
+            f'alt="{wp_info["alt_text"]}"'
+        ]
+        
+        # 幅指定がある場合
+        if wp_info.get('width'):
+            img_attrs.append(f'width="{wp_info["width"]}"')
+        
+        img_tag = f'<img {" ".join(img_attrs)} />'
+        
+        # キャプションがある場合は<figure>で囲む
+        if wp_info.get('caption'):
+            figure_html = f'''<figure class="wp-block-image">
+    {img_tag}
+    <figcaption class="wp-element-caption">{wp_info["caption"]}</figcaption>
+</figure>'''
+        else:
+            # キャプションがない場合は<img>タグのみ
+            figure_html = img_tag
+        
+        return figure_html
 
 class ImageOptimizer:
     """画像最適化クラス"""
@@ -144,7 +207,7 @@ class ImageOptimizer:
                 img.save(output_path, 'WebP', quality=85, optimize=True)
                 
                 # レスポンシブサイズ生成
-                responsive_sizes = self._generate_responsive_sizes(img, normalized_name.stem)
+                responsive_sizes = self._generate_responsive_sizes(img, Path(normalized_name).stem)
                 
                 # サイズ削減率計算
                 reduction = self._calculate_size_reduction(image_path, output_path)
