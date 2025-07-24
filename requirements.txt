@@ -1,0 +1,19 @@
+# WordPress連携
+requests>=2.31.0
+python-wordpress-xmlrpc>=2.3
+
+# マークダウン処理
+markdown>=3.5.0
+PyYAML>=6.0.1
+python-frontmatter>=1.0.0
+
+# 画像処理
+Pillow>=10.0.0
+python-magic>=0.4.27
+
+# コード処理
+pygments>=2.16.0
+
+# ユーティリティ
+python-dotenv>=1.0.0
+pathlib>=1.0.1

@@ -156,9 +156,6 @@
   "left-ribbon": {
     "hiddenItems": {
       "switcher:クイックスイッチャーを開く": false,
-      "graph:グラフビューを開く": false,
-      "canvas:新規キャンバスを作成": false,
-      "daily-notes:今日のデイリーノートを開く": false,
       "templates:テンプレートを挿入": false,
       "command-palette:コマンドパレットを開く": false,
       "markdown-importer:Markdownインポーターを開く": false,
@@ -166,21 +163,26 @@
       "table-editor-obsidian:Advanced Tables Toolbar": false
     }
   },
-  "active": "9e435a116dc0aca5",
+  "active": "d4beb0b1b1789c22",
   "lastOpenFiles": [
+    "scripts/__pycache__/wordpress_api.cpython-313.pyc.140456142199600",
+    "scripts/__pycache__/wordpress_api.cpython-313.pyc",
+    "scripts/__pycache__/wordpress_api.cpython-313.pyc.139043529546400",
+    "scripts/__pycache__",
+    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc",
+    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.139043530878976",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.139043532798640",
+    "logs/blog_automation.log",
+    "scripts/utils/__pycache__/logger.cpython-313.pyc",
+    "scripts/utils/__pycache__/logger.cpython-313.pyc.139043532794608",
+    "README.md",
     "articles/drafts/Untitled.md",
     "articles/drafts/テスト投稿用.md",
     "assets/images/テスト投稿用-20250724-1.png",
     "assets/images/テスト投稿用-20250724.png",
     "assets/images/huh-cat-huh-m4rtin.gif",
     "assets/images/${yyyy}/${MM}/テスト投稿用-20250724.png",
-    "assets/images/${yyyy}/${MM}",
-    "assets/images/${yyyy}",
-    "assets/images",
-    "articles/templates",
-    "articles/published",
-    "articles/drafts",
-    "articles",
     "Config/assets/テスト投稿用-20250724-1.png",
     "Config/assets/huh-cat-huh-m4rtin 1.gif",
     "Config/assets/Pasted image 20250724154303.png",
@@ -189,9 +191,6 @@
     "blog/test.md",
     "articles/templates/blog_template.md",
     "blog/テスト投稿.md",
-    "Config/Templates/無題のファイル.md",
-    "Templates",
-    "Config",
-    "blog"
+    "Config/Templates/無題のファイル.md"
   ]
 }

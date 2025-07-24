@@ -1,0 +1,163 @@
+name: 📝 記事公開システム
+
+on:
+  pull_request:
+    paths:
+      - 'articles/drafts/**'
+      - 'articles/published/**'
+    types: [opened, synchronize, closed]
+
+env:
+  WP_URL: ${{ secrets.WP_URL }}
+  WP_USERNAME: ${{ secrets.WP_USERNAME }}
+  WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+
+jobs:
+  # PR時: 下書きとして投稿
+  draft-publish:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+      
+      - name: 🔍 変更ファイル検出
+        id: changed-files
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep -E '\.md$' | head -10)
+          echo "Changed files: $CHANGED_FILES"
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: 📝 記事処理（下書き）
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          echo "${{ steps.changed-files.outputs.files }}" | while read -r file; do
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              echo "🔄 処理中: $file"
+              python scripts/process_article.py "$file"
+              
+              if [ -f output.json ]; then
+                echo "## 📝 $(basename "$file")" >> $GITHUB_STEP_SUMMARY
+                echo "**WordPress URL:** $(cat output.json | jq -r '.wordpress_url // "エラー"')" >> $GITHUB_STEP_SUMMARY
+                echo "**処理画像数:** $(cat output.json | jq '.images_processed // 0')" >> $GITHUB_STEP_SUMMARY
+                echo "**処理時間:** $(cat output.json | jq -r '.processing_time_seconds // 0')秒" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          done
+
+  # PRマージ時: 公開状態に変更
+  production-publish:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+      
+      - name: 🔍 マージ対象ファイル検出
+        id: merged-files
+        run: |
+          MERGED_FILES=$(git diff --name-only HEAD~1 HEAD | grep -E '\.md$')
+          echo "Merged files: $MERGED_FILES"
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$MERGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: 🚀 記事公開
+        if: steps.merged-files.outputs.files != ''
+        run: |
+          echo "${{ steps.merged-files.outputs.files }}" | while read -r file; do
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              echo "🚀 公開処理: $file"
+              python scripts/process_article.py "$file" --publish
+            fi
+          done
+      
+      - name: 📁 ファイル移動（drafts → published）
+        if: steps.merged-files.outputs.files != ''
+        run: |
+          MOVED_FILES=""
+          echo "${{ steps.merged-files.outputs.files }}" | while read -r file; do
+            if [[ $file == articles/drafts/* ]]; then
+              TARGET="articles/published/$(basename "$file")"
+              if [ -f "$file" ]; then
+                git mv "$file" "$TARGET"
+                echo "📁 移動: $file → $TARGET"
+                MOVED_FILES="$MOVED_FILES $file"
+              fi
+            fi
+          done
+          
+          if [ -n "$(git status --porcelain)" ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .
+            git commit -m "📁 記事公開：drafts → published"
+            git push
+          fi
+
+  # ヘルスチェック（毎日実行）
+  health-check:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+      
+      - name: 🏥 WordPress接続テスト
+        run: |
+          python -c "
+          from scripts.wordpress_api import WordPressAPI
+          import os
+          
+          api = WordPressAPI(
+              os.getenv('WP_URL'),
+              os.getenv('WP_USERNAME'), 
+              os.getenv('WP_APP_PASSWORD')
+          )
+          
+          if api.test_connection():
+              print('✅ WordPress API接続正常')
+          else:
+              print('❌ WordPress API接続失敗')
+              exit(1)
+          "

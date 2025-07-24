@@ -1,0 +1,16 @@
+{
+  "api_version": "wp/v2",
+  "timeout": 30,
+  "retry_attempts": 3,
+  "image_settings": {
+    "max_width": 1600,
+    "webp_quality": 85,
+    "responsive_sizes": [400, 800, 1200, 1600],
+    "optimization": true
+  },
+  "post_settings": {
+    "default_status": "draft",
+    "auto_excerpt": true,
+    "excerpt_length": 160
+  }
+}

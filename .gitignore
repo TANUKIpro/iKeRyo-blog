@@ -1,0 +1,7 @@
+temp/
+logs/
+*.pyc
+__pycache__/
+.venv*/
+.env
+output.json

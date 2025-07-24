@@ -1,0 +1,18 @@
+{
+  "image_syntax": {
+    "pattern": "!\\[\\[([^|\\]]+)(?:\\s*\\|\\s*([^|\\]]+))?(?:\\s*\\|\\s*(\\d+))?\\]\\]",
+    "caption_support": true,
+    "width_support": true
+  },
+  "wikilink_conversion": {
+    "enabled": true,
+    "base_url": "/articles/",
+    "slug_format": "kebab-case"
+  },
+  "code_diff_syntax": {
+    "enabled": true,
+    "add_pattern": "add:([\\d,-]+)",
+    "error_pattern": "error:([\\d,-]+)",
+    "remove_pattern": "remove:([\\d,-]+)"
+  }
+}
