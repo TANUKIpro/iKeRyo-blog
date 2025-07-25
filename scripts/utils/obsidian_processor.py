@@ -7,6 +7,7 @@ import re
 import os
 from typing import Dict, List, Optional
 from pathlib import Path
+from datetime import datetime
 from PIL import Image
 from .logger import logger
 
@@ -105,8 +106,13 @@ class ObsidianProcessor:
             
             # 年月ディレクトリ構造も検索
             if '/' not in test_filename:
+                # 現在の年月ディレクトリも検索対象に含める
+                now = datetime.now()
+                year = f"{now.year:04d}"
+                month = f"{now.month:02d}"
+
                 search_candidates.extend([
-                    self.assets_dir / "2025" / "07" / test_filename,
+                    self.assets_dir / year / month / test_filename,
                     base_dir / f"{base_dir.stem}_assets" / test_filename,
                 ])
             
