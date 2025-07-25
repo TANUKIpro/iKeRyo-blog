@@ -5,10 +5,7 @@ ObsidianのCode Styler風の見た目を実現
 
 import re
 from typing import Dict, List, Tuple
-from src.utils.logger import get_logger
-
-logger = get_logger(__name__)
-
+from utils.logger import logger
 
 class CodeHighlighter:
     """コードブロックをスタイリングするクラス"""
