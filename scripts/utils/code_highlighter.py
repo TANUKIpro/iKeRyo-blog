@@ -6,6 +6,9 @@ ObsidianのCode Styler風の見た目を実現
 import re
 from typing import Dict, List, Tuple
 from utils.logger import logger
+from pygments import highlight
+from pygments.lexers import get_lexer_by_name
+from pygments.formatters import HtmlFormatter
 
 class CodeHighlighter:
     """コードブロックをスタイリングするクラス"""
@@ -51,6 +54,8 @@ class CodeHighlighter:
         'plaintext': 'plaintext',
         'text': 'plaintext'
     }
+
+    PYGMENTS_STYLE = 'github-dark'
     
     # 行スタイルの定義
     LINE_STYLES = {
@@ -83,6 +88,16 @@ class CodeHighlighter:
     
     def __init__(self):
         self.logger = logger
+
+    def _highlight_code(self, code: str, language: str) -> str:
+        """Highlight code using Pygments."""
+        try:
+            lexer = get_lexer_by_name(language)
+        except Exception:
+            lexer = get_lexer_by_name('text')
+        formatter = HtmlFormatter(nowrap=True, noclasses=True,
+                                 style=self.PYGMENTS_STYLE)
+        return highlight(code, lexer, formatter)
     
     def process_code_block(self, code_block_match: re.Match) -> str:
         """コードブロック全体を処理（Prism.js互換）"""
@@ -154,37 +169,30 @@ class CodeHighlighter:
         
         return sorted(set(line_numbers))
     
-    def _create_prism_code_block_html(self, prism_language: str, 
+    def _create_prism_code_block_html(self, prism_language: str,
                                       code_content: str, original_language: str) -> str:
-        """通常のPrism.js形式のコードブロックを生成"""
-        # HTMLエスケープ
-        code_content = (code_content
-                       .replace('&', '&amp;')
-                       .replace('<', '&lt;')
-                       .replace('>', '&gt;'))
-        
-        # 言語ラベル
+        """GitHub風スタイルのコードブロックを生成"""
+
+        highlighted = self._highlight_code(code_content, prism_language)
+
         language_label = ''
         if original_language and original_language != 'plaintext':
             language_label = f'<div class="code-language-label">{original_language}</div>'
-        
-        # Prism.js標準形式
+
         return (
             f'<div class="code-block-wrapper">'
             f'{language_label}'
-            f'<pre class="language-{prism_language} line-numbers"><code class="language-{prism_language}">'
-            f'{code_content}'
-            f'</code></pre>'
+            f'<pre><code class="language-{prism_language}">{highlighted}</code></pre>'
             f'</div>'
         )
     
     def _create_custom_code_block_html(self, prism_language: str, lines: List[str],
                                        original_language: str, line_highlights: Dict[str, List[int]]) -> str:
         """カスタムハイライト付きコードブロックを生成"""
-        # 行ごとのHTMLを生成
+        highlighted_lines = self._highlight_code("\n".join(lines), prism_language).splitlines()
         html_lines = []
-        for i, line in enumerate(lines, 1):
-            line_html = self._create_line_html(i, line, line_highlights)
+        for i, hl in enumerate(highlighted_lines, 1):
+            line_html = self._create_line_html(i, hl, line_highlights)
             html_lines.append(line_html)
         
         # 言語ラベル
@@ -196,7 +204,7 @@ class CodeHighlighter:
         return (
             f'<div class="code-block-wrapper">'
             f'{language_label}'
-            f'<pre class="language-{prism_language} custom-highlights"><code class="language-{prism_language}">'
+            f'<pre><code class="language-{prism_language}">'
             f'{"".join(html_lines)}'
             f'</code></pre>'
             f'</div>'
@@ -205,18 +213,15 @@ class CodeHighlighter:
     def _create_line_html(self, line_number: int, line_content: str,
                           line_highlights: Dict[str, List[int]]) -> str:
         """単一行のHTMLを生成"""
-        # HTMLエスケープ
-        line_content = (line_content
-                       .replace('&', '&amp;')
-                       .replace('<', '&lt;')
-                       .replace('>', '&gt;'))
         
         # ハイライトスタイルの確認
         for style, line_numbers in line_highlights.items():
             if line_number in line_numbers:
                 style_info = self.LINE_STYLES[style]
                 return (
-                    f'<span class="code-line {style_info["class"]}">'
+                    f'<span class="code-line {style_info["class"]}" '
+                    f'style="background:{style_info["background"]}; '
+                    f'border-left:{style_info["border_left"]};">'
                     f'<span class="line-number">{line_number}</span>'
                     f'{line_content}\n</span>'
                 )
