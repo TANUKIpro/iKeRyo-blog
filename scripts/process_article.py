@@ -174,18 +174,20 @@ class ArticleProcessor:
     
     def _process_categories(self, metadata: Dict) -> list:
         """カテゴリー処理"""
-        if 'param_category' not in metadata:
+        value = metadata.get('param_category')
+        if not value:
             return []
-        
-        category_names = [cat.strip() for cat in metadata['param_category'].split(',')]
+
+        category_names = [c.strip() for c in str(value).split(',') if c.strip()]
         return [self.wordpress_api.get_or_create_category(name) for name in category_names]
     
     def _process_tags(self, metadata: Dict) -> list:
         """タグ処理"""
-        if 'param_tags' not in metadata:
+        value = metadata.get('param_tags')
+        if not value:
             return []
-        
-        tag_names = [tag.strip() for tag in metadata['param_tags'].split(',')]
+
+        tag_names = [t.strip() for t in str(value).split(',') if t.strip()]
         return self.wordpress_api.get_or_create_tags(tag_names)
 
 def load_config():
