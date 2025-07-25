@@ -166,54 +166,54 @@ jobs:
         run: |
           mkdir -p previews
           cat > scripts/generate_preview.py <<'PY'
-import sys
-from pathlib import Path
-from utils.markdown_parser import MarkdownParser
-from utils.obsidian_processor import ObsidianProcessor
+          import sys
+          from pathlib import Path
+          from utils.markdown_parser import MarkdownParser
+          from utils.obsidian_processor import ObsidianProcessor
 
-def generate_preview(markdown_file):
-    parser = MarkdownParser()
-    processor = ObsidianProcessor('.')
-    article_data = parser.parse_file(markdown_file)
-    content = processor.process_obsidian_syntax(article_data['content'])
-    html_content = parser.to_html(content)
-    preview_html = f"""
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{article_data['metadata'].get('title', Path(markdown_file).stem)}</title>
-    <style>
-        body {{ max-width: 800px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }}
-        img {{ max-width: 100%; height: auto; display: block; margin: 20px auto; }}
-        figure {{ text-align: center; margin: 20px 0; }}
-        figcaption {{ font-size: 0.9em; color: #666; margin-top: 10px; }}
-        pre {{ background: #f4f4f4; padding: 15px; overflow-x: auto; border-radius: 5px; }}
-        blockquote {{ border-left: 4px solid #ddd; margin-left: 0; padding-left: 20px; color: #666; }}
-        .metadata {{ background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 30px; font-size: 0.9em; }}
-        .metadata strong {{ color: #333; }}
-    </style>
-</head>
-<body>
-    <div class="metadata">
-        <strong>カテゴリ:</strong> {article_data['metadata'].get('param_category', 'なし')}<br>
-        <strong>タグ:</strong> {article_data['metadata'].get('param_tags', 'なし')}<br>
-        <strong>作成日:</strong> {article_data['metadata'].get('param_created', '未設定')}
-    </div>
-    {html_content}
-</body>
-</html>
-"""
-    preview_path = Path('previews') / f"{Path(markdown_file).stem}.html"
-    preview_path.write_text(preview_html, encoding='utf-8')
-    return preview_path
+          def generate_preview(markdown_file):
+              parser = MarkdownParser()
+              processor = ObsidianProcessor('.')
+              article_data = parser.parse_file(markdown_file)
+              content = processor.process_obsidian_syntax(article_data['content'])
+              html_content = parser.to_html(content)
+              preview_html = f"""
+          <!DOCTYPE html>
+          <html lang="ja">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>{article_data['metadata'].get('title', Path(markdown_file).stem)}</title>
+              <style>
+                  body {{ max-width: 800px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }}
+                  img {{ max-width: 100%; height: auto; display: block; margin: 20px auto; }}
+                  figure {{ text-align: center; margin: 20px 0; }}
+                  figcaption {{ font-size: 0.9em; color: #666; margin-top: 10px; }}
+                  pre {{ background: #f4f4f4; padding: 15px; overflow-x: auto; border-radius: 5px; }}
+                  blockquote {{ border-left: 4px solid #ddd; margin-left: 0; padding-left: 20px; color: #666; }}
+                  .metadata {{ background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 30px; font-size: 0.9em; }}
+                  .metadata strong {{ color: #333; }}
+              </style>
+          </head>
+          <body>
+              <div class="metadata">
+                  <strong>カテゴリ:</strong> {article_data['metadata'].get('param_category', 'なし')}<br>
+                  <strong>タグ:</strong> {article_data['metadata'].get('param_tags', 'なし')}<br>
+                  <strong>作成日:</strong> {article_data['metadata'].get('param_created', '未設定')}
+              </div>
+              {html_content}
+          </body>
+          </html>
+          """
+              preview_path = Path('previews') / f"{Path(markdown_file).stem}.html"
+              preview_path.write_text(preview_html, encoding='utf-8')
+              return preview_path
 
-if __name__ == '__main__':
-    markdown_file = sys.argv[1]
-    preview_path = generate_preview(markdown_file)
-    print(f"Preview generated: {preview_path}")
-PY
+          if __name__ == '__main__':
+              markdown_file = sys.argv[1]
+              preview_path = generate_preview(markdown_file)
+              print(f"Preview generated: {preview_path}")
+          PY
           for file in $(find articles/drafts -name '*.md'); do
             if [ -f "$file" ]; then
               echo "📄 プレビュー生成: $file"
