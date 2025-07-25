@@ -1,4 +1,4 @@
-name: 🚀 ブランチ更新タスク
+name: 🚀 下書き処理タスク
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ env:
   WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
 
 jobs:
-  branch-tasks:
+  draft-tasks:
     runs-on: ubuntu-latest
     steps:
       - name: 📥 チェックアウト
@@ -31,22 +31,27 @@ jobs:
           pip install -r requirements.txt
           pip install pyspellchecker language-tool-python
 
-      - name: 🔍 変更ファイル検出
-        id: changed-files
-        uses: tj-actions/changed-files@v44
-        with:
-          files: |
-            articles/**/*.md
-          separator: "\n"
+      - name: 🔍 下書きファイル確認
+        id: check-drafts
+        run: |
+          files=$(find articles/drafts -name '*.md' -print0 | tr '\0' '\n')
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$files" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          if [ -n "$files" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: 📝 記事処理（下書き）
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.check-drafts.outputs.found == 'true'
         run: |
           echo "## 📝 WordPress下書き投稿結果" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           SUCCESS_COUNT=0
           FAIL_COUNT=0
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+          while IFS= read -r file; do
             if [ -f "$file" ]; then
               echo "🔄 処理中: $file"
               if python scripts/process_article.py "$file"; then
@@ -74,12 +79,12 @@ jobs:
                 echo "" >> $GITHUB_STEP_SUMMARY
               fi
             fi
-          done
+          done <<< "${{ steps.check-drafts.outputs.files }}"
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "**成功:** $SUCCESS_COUNT | **失敗:** $FAIL_COUNT" >> $GITHUB_STEP_SUMMARY
 
       - name: 💬 PRコメント投稿
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.check-drafts.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -99,12 +104,12 @@ jobs:
             });
 
       - name: 🔎 品質チェック実行
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.check-drafts.outputs.found == 'true'
         run: |
-          python scripts/quality_checker.py ${{ steps.changed-files.outputs.all_changed_files }}
+          echo "${{ steps.check-drafts.outputs.files }}" | xargs -d '\n' python scripts/quality_checker.py
 
       - name: 📊 品質レポート生成
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.check-drafts.outputs.found == 'true'
         run: |
           echo "## ✅ 記事品質チェック結果" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -124,7 +129,7 @@ jobs:
           fi
 
       - name: 💬 PRコメントで結果共有
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.check-drafts.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -163,6 +168,7 @@ jobs:
             });
 
       - name: 📄 プレビュー生成
+        if: steps.check-drafts.outputs.found == 'true'
         run: |
           mkdir -p previews
           cat > scripts/generate_preview.py <<'PY'
@@ -214,14 +220,15 @@ jobs:
               preview_path = generate_preview(markdown_file)
               print(f"Preview generated: {preview_path}")
           PY
-          for file in $(find articles/drafts -name '*.md'); do
+          while IFS= read -r file; do
             if [ -f "$file" ]; then
               echo "📄 プレビュー生成: $file"
               python scripts/generate_preview.py "$file"
             fi
-          done
+          done <<< "${{ steps.check-drafts.outputs.files }}"
 
       - name: 📤 プレビューアップロード
+        if: steps.check-drafts.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: article-previews
@@ -230,6 +237,7 @@ jobs:
           compression-level: 9
 
       - name: 💬 PRコメントでプレビューリンク共有
+        if: steps.check-drafts.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
           script: |
