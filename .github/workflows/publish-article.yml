@@ -2,10 +2,10 @@ name: 📝 記事公開システム
 
 on:
   pull_request:
+    types: [closed]
     paths:
       - 'articles/drafts/**/*.md'
       - 'articles/published/**/*.md'
-    types: [opened, synchronize, closed]
 
 env:
   WP_URL: ${{ secrets.WP_URL }}
@@ -13,126 +13,26 @@ env:
   WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
 
 jobs:
-  # PR時: 下書きとして投稿
-  draft-publish:
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: 📥 チェックアウト
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # 全履歴を取得（より正確な差分検出のため）
-      
-      - name: 🐍 Python環境セットアップ
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      
-      - name: 📦 依存関係インストール
-        run: |
-          pip install -r requirements.txt
-      
-      - name: 🔍 変更ファイル検出
-        id: changed-files
-        uses: tj-actions/changed-files@v44
-        with:
-          files: |
-            articles/drafts/**/*.md
-            articles/published/**/*.md
-          separator: "\n"
-      
-      - name: 📝 記事処理（下書き）
-        if: steps.changed-files.outputs.any_changed == 'true'
-        run: |
-          echo "## 📝 WordPress下書き投稿結果" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          SUCCESS_COUNT=0
-          FAIL_COUNT=0
-          
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            if [ -f "$file" ]; then
-              echo "🔄 処理中: $file"
-              
-              if python scripts/process_article.py "$file"; then
-                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-                
-                if [ -f output.json ]; then
-                  WP_URL=$(cat output.json | jq -r '.wordpress_url // "エラー"')
-                  IMAGES=$(cat output.json | jq '.images_processed // 0')
-                  TIME=$(cat output.json | jq -r '.processing_time_seconds // 0')
-                  UPDATED=$(cat output.json | jq -r '.updated // false')
-                  
-                  ACTION="作成"
-                  if [ "$UPDATED" = "true" ]; then
-                    ACTION="更新"
-                  fi
-                  
-                  echo "### ✅ $(basename "$file")" >> $GITHUB_STEP_SUMMARY
-                  echo "- **アクション:** $ACTION" >> $GITHUB_STEP_SUMMARY
-                  echo "- **WordPress URL:** $WP_URL" >> $GITHUB_STEP_SUMMARY
-                  echo "- **処理画像数:** $IMAGES" >> $GITHUB_STEP_SUMMARY
-                  echo "- **処理時間:** ${TIME}秒" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                fi
-              else
-                FAIL_COUNT=$((FAIL_COUNT + 1))
-                echo "### ❌ $(basename "$file")" >> $GITHUB_STEP_SUMMARY
-                echo "- **エラー:** 処理に失敗しました" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-              fi
-            fi
-          done
-          
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "**成功:** $SUCCESS_COUNT | **失敗:** $FAIL_COUNT" >> $GITHUB_STEP_SUMMARY
-      
-      - name: 💬 PRコメント投稿
-        if: steps.changed-files.outputs.any_changed == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let comment = '## 📝 WordPress下書き投稿結果\n\n';
-            
-            if (fs.existsSync('output.json')) {
-              const output = JSON.parse(fs.readFileSync('output.json', 'utf8'));
-              comment += `✅ **${output.wordpress_url}** に下書きとして投稿されました。\n\n`;
-              comment += `- 処理画像数: ${output.images_processed}\n`;
-              comment += `- 処理時間: ${output.processing_time_seconds}秒\n`;
-            }
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-
-  # PRマージ時: 公開状態に変更
   production-publish:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    
     steps:
       - name: 📥 チェックアウト
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-      
+
       - name: 🐍 Python環境セットアップ
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
+
       - name: 📦 依存関係インストール
         run: |
           pip install -r requirements.txt
-      
+
       - name: 🔍 マージ対象ファイル検出
         id: merged-files
         uses: tj-actions/changed-files@v44
@@ -140,40 +40,30 @@ jobs:
           files: |
             articles/drafts/**/*.md
           separator: "\n"
-      
+
       - name: 🚀 記事公開とファイル移動
         if: steps.merged-files.outputs.any_changed == 'true'
         run: |
           echo "## 🚀 記事公開結果" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Git設定
+
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
+
           PUBLISHED_COUNT=0
           MOVED_FILES=""
-          
+
           for file in ${{ steps.merged-files.outputs.all_changed_files }}; do
             if [ -f "$file" ] && [[ $file == articles/drafts/* ]]; then
               echo "🚀 公開処理: $file"
-              
-              # WordPressに公開
               if python scripts/process_article.py "$file" --publish; then
                 PUBLISHED_COUNT=$((PUBLISHED_COUNT + 1))
-                
-                # ファイル移動
                 FILENAME=$(basename "$file")
                 TARGET_DIR="articles/published/$(date +%Y/%m)"
                 TARGET_PATH="$TARGET_DIR/$FILENAME"
-                
-                # ディレクトリ作成
                 mkdir -p "$TARGET_DIR"
-                
-                # ファイル移動
                 git mv "$file" "$TARGET_PATH"
                 MOVED_FILES="$MOVED_FILES\n- $file → $TARGET_PATH"
-                
                 if [ -f output.json ]; then
                   WP_URL=$(cat output.json | jq -r '.wordpress_url // "エラー"')
                   echo "### ✅ $FILENAME" >> $GITHUB_STEP_SUMMARY
@@ -184,13 +74,12 @@ jobs:
               fi
             fi
           done
-          
-          # 変更をコミット
+
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "📁 記事公開完了: $PUBLISHED_COUNT 件の記事を published へ移動"
             git push
-            
+
             echo "---" >> $GITHUB_STEP_SUMMARY
             echo "**公開記事数:** $PUBLISHED_COUNT" >> $GITHUB_STEP_SUMMARY
             echo "**移動ファイル:**" >> $GITHUB_STEP_SUMMARY

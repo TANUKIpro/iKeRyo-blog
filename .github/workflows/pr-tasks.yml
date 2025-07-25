@@ -1,0 +1,246 @@
+name: 🚀 ブランチ更新タスク
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'articles/**/*.md'
+
+env:
+  WP_URL: ${{ secrets.WP_URL }}
+  WP_USERNAME: ${{ secrets.WP_USERNAME }}
+  WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+
+jobs:
+  branch-tasks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 チェックアウト
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Python環境セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+          pip install pyspellchecker language-tool-python
+
+      - name: 🔍 変更ファイル検出
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            articles/**/*.md
+          separator: "\n"
+
+      - name: 📝 記事処理（下書き）
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          echo "## 📝 WordPress下書き投稿結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          SUCCESS_COUNT=0
+          FAIL_COUNT=0
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [ -f "$file" ]; then
+              echo "🔄 処理中: $file"
+              if python scripts/process_article.py "$file"; then
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                if [ -f output.json ]; then
+                  WP_URL=$(cat output.json | jq -r '.wordpress_url // "エラー"')
+                  IMAGES=$(cat output.json | jq '.images_processed // 0')
+                  TIME=$(cat output.json | jq -r '.processing_time_seconds // 0')
+                  UPDATED=$(cat output.json | jq -r '.updated // false')
+                  ACTION="作成"
+                  if [ "$UPDATED" = "true" ]; then
+                    ACTION="更新"
+                  fi
+                  echo "### ✅ $(basename "$file")" >> $GITHUB_STEP_SUMMARY
+                  echo "- **アクション:** $ACTION" >> $GITHUB_STEP_SUMMARY
+                  echo "- **WordPress URL:** $WP_URL" >> $GITHUB_STEP_SUMMARY
+                  echo "- **処理画像数:** $IMAGES" >> $GITHUB_STEP_SUMMARY
+                  echo "- **処理時間:** ${TIME}秒" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                fi
+              else
+                FAIL_COUNT=$((FAIL_COUNT + 1))
+                echo "### ❌ $(basename "$file")" >> $GITHUB_STEP_SUMMARY
+                echo "- **エラー:** 処理に失敗しました" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          done
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "**成功:** $SUCCESS_COUNT | **失敗:** $FAIL_COUNT" >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 PRコメント投稿
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## 📝 WordPress下書き投稿結果\n\n';
+            if (fs.existsSync('output.json')) {
+              const output = JSON.parse(fs.readFileSync('output.json', 'utf8'));
+              comment += `✅ **${output.wordpress_url}** に下書きとして投稿されました。\n\n`;
+              comment += `- 処理画像数: ${output.images_processed}\n`;
+              comment += `- 処理時間: ${output.processing_time_seconds}秒\n`;
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: 🔎 品質チェック実行
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          python scripts/quality_checker.py ${{ steps.changed-files.outputs.all_changed_files }}
+
+      - name: 📊 品質レポート生成
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          echo "## ✅ 記事品質チェック結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f quality_report.json ]; then
+            cat quality_report.json | jq -r '.[] |
+              "### 📄 " + (.file | split("/") | last) + "\n" +
+              "#### 📊 統計情報\n" +
+              "- 文字数: " + (.statistics.character_count | tostring) + "\n" +
+              "- 推定読了時間: " + (.statistics.reading_time_minutes | tostring) + "分\n" +
+              "- 画像数: " + (.checks.images.image_count | tostring) + "\n" +
+              "- 外部リンク: " + (.checks.links.external_links | tostring) + "\n\n" +
+              "#### 🔍 チェック結果\n" +
+              (if .checks.metadata.passed then "✅ メタデータ: OK" else "❌ メタデータ: " + (.checks.metadata.issues | join(", ")) end) + "\n" +
+              (if .checks.images.passed then "✅ 画像: OK" else "❌ 画像: " + (.checks.images.issues | join(", ")) end) + "\n" +
+              (if .checks.format.passed then "✅ フォーマット: OK" else "❌ フォーマット: " + (.checks.format.issues | join(", ")) end) + "\n"'
+            >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 💬 PRコメントで結果共有
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('quality_report.json')) return;
+            const report = JSON.parse(fs.readFileSync('quality_report.json', 'utf8'));
+            let comment = '## ✅ 記事品質チェック結果\n\n';
+            let hasIssues = false;
+            for (const result of report) {
+              const filename = result.file.split('/').pop();
+              comment += `### 📄 ${filename}\n\n`;
+              comment += `📊 **統計:** ${result.statistics.character_count}文字 / 読了${result.statistics.reading_time_minutes}分\n\n`;
+              const allChecks = Object.values(result.checks);
+              const failedChecks = allChecks.filter(check => !check.passed);
+              if (failedChecks.length > 0) {
+                hasIssues = true;
+                comment += '⚠️ **改善が必要な項目:**\n';
+                for (const check of failedChecks) {
+                  for (const issue of check.issues) {
+                    comment += `- ${issue}\n`;
+                  }
+                }
+              } else {
+                comment += '✅ すべてのチェックに合格しました！\n';
+              }
+              comment += '\n';
+            }
+            if (hasIssues) {
+              comment += '> 💡 上記の項目を確認し、必要に応じて修正してください。';
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: 📄 プレビュー生成
+        run: |
+          mkdir -p previews
+          cat > scripts/generate_preview.py <<'PY'
+          import sys
+          from pathlib import Path
+          from utils.markdown_parser import MarkdownParser
+          from utils.obsidian_processor import ObsidianProcessor
+
+          def generate_preview(markdown_file):
+              parser = MarkdownParser()
+              processor = ObsidianProcessor('.')
+              article_data = parser.parse_file(markdown_file)
+              content = processor.process_obsidian_syntax(article_data['content'])
+              html_content = parser.to_html(content)
+              preview_html = f"""
+          <!DOCTYPE html>
+          <html lang="ja">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>{article_data['metadata'].get('title', Path(markdown_file).stem)}</title>
+              <style>
+                  body {{ max-width: 800px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }}
+                  img {{ max-width: 100%; height: auto; display: block; margin: 20px auto; }}
+                  figure {{ text-align: center; margin: 20px 0; }}
+                  figcaption {{ font-size: 0.9em; color: #666; margin-top: 10px; }}
+                  pre {{ background: #f4f4f4; padding: 15px; overflow-x: auto; border-radius: 5px; }}
+                  blockquote {{ border-left: 4px solid #ddd; margin-left: 0; padding-left: 20px; color: #666; }}
+                  .metadata {{ background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 30px; font-size: 0.9em; }}
+                  .metadata strong {{ color: #333; }}
+              </style>
+          </head>
+          <body>
+              <div class="metadata">
+                  <strong>カテゴリ:</strong> {article_data['metadata'].get('param_category', 'なし')}<br>
+                  <strong>タグ:</strong> {article_data['metadata'].get('param_tags', 'なし')}<br>
+                  <strong>作成日:</strong> {article_data['metadata'].get('param_created', '未設定')}
+              </div>
+              {html_content}
+          </body>
+          </html>
+          """
+              preview_path = Path('previews') / f"{Path(markdown_file).stem}.html"
+              preview_path.write_text(preview_html, encoding='utf-8')
+              return preview_path
+
+          if __name__ == '__main__':
+              markdown_file = sys.argv[1]
+              preview_path = generate_preview(markdown_file)
+              print(f"Preview generated: {preview_path}")
+          PY
+          for file in $(find articles/drafts -name '*.md'); do
+            if [ -f "$file" ]; then
+              echo "📄 プレビュー生成: $file"
+              python scripts/generate_preview.py "$file"
+            fi
+          done
+
+      - name: 📤 プレビューアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: article-previews
+          path: previews/
+          retention-days: 7
+          compression-level: 9
+
+      - name: 💬 PRコメントでプレビューリンク共有
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const comment = `## 👀 記事プレビュー\n\n` +
+              `プレビューHTMLが生成されました。\n\n` +
+              `[📄 プレビューをダウンロード](${artifactUrl})\n\n` +
+              `> **Note:** Artifactsセクションから \`article-previews\` をダウンロードしてブラウザで開いてください。`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
