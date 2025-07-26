@@ -11,7 +11,6 @@
             "id": "9e435a116dc0aca5",
             "type": "leaf",
             "state": {
-<<<<<<< HEAD
               "type": "markdown",
               "state": {
                 "file": "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
@@ -20,12 +19,6 @@
               },
               "icon": "lucide-file",
               "title": "Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1"
-=======
-              "type": "empty",
-              "state": {},
-              "icon": "lucide-file",
-              "title": "新規タブ"
->>>>>>> main
             }
           }
         ]
