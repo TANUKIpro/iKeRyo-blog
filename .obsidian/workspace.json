@@ -11,14 +11,10 @@
             "id": "9e435a116dc0aca5",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "articles/drafts/テスト投稿用.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "テスト投稿用"
+              "title": "新規タブ"
             }
           }
         ]
@@ -78,7 +74,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 300,
+    "collapsed": true
   },
   "right": {
     "id": "f9e733cc17b477aa",
@@ -127,13 +124,12 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "articles/drafts/テスト投稿用.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "テスト投稿用のアウトライン"
+              "title": "アウトライン"
             }
           },
           {
@@ -147,11 +143,11 @@
             }
           }
         ],
-        "currentTab": 3
+        "currentTab": 2
       }
     ],
     "direction": "horizontal",
-    "width": 364.5
+    "width": 200
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -165,30 +161,31 @@
   },
   "active": "9e435a116dc0aca5",
   "lastOpenFiles": [
-    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.135166607747680",
-    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.131139634326112",
-    "scripts/__pycache__/wordpress_api.cpython-313.pyc.129736262590960",
-    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.129736262594704",
-    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.129736263617824",
-    "scripts/utils/__pycache__/__init__.cpython-313.pyc.129736264902976",
-    "scripts/__pycache__/wordpress_api.cpython-313.pyc.137784674575120",
-    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.137784674578864",
-    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.137784675601840",
-    "scripts/utils/__pycache__/logger.cpython-313.pyc.137784676412144",
-    "scripts/utils/__pycache__/__init__.cpython-313.pyc.137784676411856",
-    "temp/huh-cat-huh-m4rtin.gif",
-    "temp/huh-cat-huh-m4rtin.webp",
-    "temp/テスト投稿用-20250724-1.png",
-    "temp/テスト投稿用-20250724-1.webp",
-    "temp/テスト投稿用-20250724.png",
-    "temp/テスト投稿用-20250724.webp",
-    "README.md",
-    "articles/drafts/Untitled.md",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.130580347043888",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.140639845793840",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.124836982767664",
+    "scripts/utils/__pycache__/code_highlighter.cpython-313.pyc.130024233854144",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.130024234467376",
+    "scripts/utils/__pycache__/code_highlighter.cpython-313.pyc.126036153590832",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.126036154220592",
+    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.133466740005392",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.133466743324720",
+    "scripts/test.py",
+    "test.py",
+    "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
+    "assets/images/logi_shifter_test.gif",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-9.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-8.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-7.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-6.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-5.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-4.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-3.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-2.png",
+    "articles/published/テスト投稿用.md",
     "articles/drafts/テスト投稿用.md",
-    "assets/images/テスト投稿用-20250724-1.png",
-    "assets/images/テスト投稿用-20250724.png",
-    "assets/images/huh-cat-huh-m4rtin.gif",
-    "assets/images/${yyyy}/${MM}/テスト投稿用-20250724.png",
+    "README.md",
     "blog/無題のファイル.md",
     "blog/Untitled 1.md",
     "blog/test.md",

@@ -1,75 +1,85 @@
 """
-Markdown解析モジュール
-YAML front matterの解析とMarkdown→HTML変換
+Markdownパーサーモジュール
+Obsidian記法を含むMarkdownをHTML変換
 """
 
 import re
-import yaml
 import markdown
+from markdown.extensions import Extension
+from markdown.preprocessors import Preprocessor
 from typing import Dict, Tuple
-from pathlib import Path
-from utils.logger import logger
-from utils.code_highlighter import CodeHighlighter, enhance_code_blocks_with_styler
+import yaml
+from .logger import logger
+from .code_highlighter import CodeHighlighter
+
+
+class ObsidianLinkPreprocessor(Preprocessor):
+    """Obsidian形式のリンクを処理するプリプロセッサ"""
+    
+    def run(self, lines):
+        """各行を処理してObsidianリンクを変換"""
+        new_lines = []
+        for line in lines:
+            # [[リンク]] 形式を変換（![[画像]] は除外）
+            line = re.sub(
+                r'(?<!\!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]',
+                lambda m: f'[{m.group(2) or m.group(1)}]({self._wiki_to_url(m.group(1))})',
+                line
+            )
+            new_lines.append(line)
+        return new_lines
+    
+    def _wiki_to_url(self, page_name: str) -> str:
+        """wikilink をブログ内URLに変換"""
+        slug = re.sub(r'[^\w\s-]', '', page_name).strip()
+        slug = re.sub(r'[\s_-]+', '-', slug).lower()
+        return f"/articles/{slug}"
+
+
+class ObsidianExtension(Extension):
+    """Obsidian記法を処理するMarkdown拡張"""
+    
+    def extendMarkdown(self, md):
+        md.preprocessors.register(ObsidianLinkPreprocessor(md), 'obsidian_link', 175)
 
 
 class MarkdownParser:
-    """汎用Markdown解析クラス"""
+    """Markdown→HTML変換クラス"""
     
     def __init__(self):
-        self.md = markdown.Markdown(
-            extensions=[
-                'codehilite',
-                'fenced_code', 
-                'tables',
-                'toc',
-                'footnotes',
-                'attr_list'
-            ],
-            extension_configs={
-                'codehilite': {
-                    'css_class': 'highlight',
-                    'use_pygments': False
-                },
-                'tables': {}
-            }
-        )
+        """パーサーの初期化"""
+        self.md = markdown.Markdown(extensions=[
+            'markdown.extensions.extra',
+            'markdown.extensions.codehilite',
+            'markdown.extensions.toc',
+            'markdown.extensions.nl2br',
+            'markdown.extensions.sane_lists',
+            'markdown.extensions.footnotes',
+            'markdown.extensions.meta',
+            'markdown.extensions.smarty',
+            ObsidianExtension()
+        ])
+        logger.debug("MarkdownParser初期化完了")
     
-    def parse_file(self, file_path: str) -> Dict:
-        """Markdownファイルを解析"""
-        file_path = Path(file_path)
-        
-        if not file_path.exists():
-            raise FileNotFoundError(f"ファイルが見つかりません: {file_path}")
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        logger.debug("Markdownファイル読み込み完了", file=str(file_path))
-        
-        # YAML front matterと本文を分離
-        metadata, markdown_content = self._split_front_matter(content)
-        
-        return {
-            'metadata': metadata,
-            'content': markdown_content,
-            'source_file': str(file_path),
-            'file_stem': file_path.stem
-        }
-    
-    def _split_front_matter(self, content: str) -> Tuple[Dict, str]:
-        """YAML front matterと本文を分離"""
+    def parse_frontmatter(self, content: str) -> Tuple[Dict, str]:
+        """YAMLフロントマターを解析"""
         if not content.startswith('---'):
             return {}, content
         
-        parts = content.split('---', 2)
-        if len(parts) < 3:
-            return {}, content
-        
         try:
-            metadata = yaml.safe_load(parts[1])
-            markdown_content = parts[2].strip()
-            logger.debug("YAML front matter解析完了", keys=list(metadata.keys()) if metadata else [])
-            return metadata or {}, markdown_content
+            # フロントマターの終了位置を見つける
+            end_match = re.search(r'\n---\s*\n', content[3:])
+            if not end_match:
+                return {}, content
+            
+            yaml_content = content[3:end_match.start() + 3]
+            markdown_content = content[end_match.end() + 3:]
+            
+            # YAML解析
+            metadata = yaml.safe_load(yaml_content) or {}
+            logger.debug("フロントマター解析完了", keys=list(metadata.keys()))
+            return metadata, markdown_content
+            
         except yaml.YAMLError as e:
             logger.warning(f"YAML解析エラー: {e}")
             return {}, content
@@ -77,13 +87,16 @@ class MarkdownParser:
     def to_html(self, markdown_content: str) -> str:
         """Markdown→HTML変換"""
         # Code Styler記法を先に処理
-        markdown_content = self._process_code_styler_blocks(markdown_content)
+        markdown_content = self._process_code_blocks_simple(markdown_content)
         
         # リセット（前回の変換状態をクリア）
         self.md.reset()
         
         # 打消し記法の前処理
         markdown_content = self._process_strikethrough(markdown_content)
+        
+        # プレーンURLを自動リンク化
+        markdown_content = self._process_plain_urls(markdown_content)
         
         # 基本HTML変換
         html = self.md.convert(markdown_content)
@@ -98,23 +111,94 @@ class MarkdownParser:
         logger.debug("HTML変換完了", length=len(html))
         return html
     
-    def _process_code_styler_blocks(self, content: str) -> str:
-        """Code Styler記法のコードブロックを処理"""
-        code_highlighter = CodeHighlighter()
+    def _process_plain_urls(self, content: str) -> str:
+        """プレーンURLを自動的にリンクに変換"""
+        # 行頭または空白文字の後のURLを検出
+        # コードブロック内は除外するため、コードブロックを一時的に置換
+        code_blocks = []
         
-        # ```言語名 スタイル:行番号 の形式を検出
-        pattern = r'```(\S+(?:\s+[^\n]+)?)\n(.*?)```'
+        # コードブロックを一時的に保存
+        def save_code_block(match):
+            code_blocks.append(match.group(0))
+            return f'%%%CODEBLOCK_{len(code_blocks)-1}%%%'
         
-        def replace_code_block(match):
-            # CodeHighlighterで処理してHTMLを生成
-            html = code_highlighter.process_code_block(match)
-            # Markdownパーサーがさらに処理しないよう、特殊なマーカーで囲む
-            return f'%%%CODEBLOCK_START%%%{html}%%%CODEBLOCK_END%%%'
+        # コードブロックを一時的に置換
+        content = re.sub(r'```[\s\S]*?```', save_code_block, content)
+        content = re.sub(r'`[^`]+`', save_code_block, content)
         
-        # コードブロックを置換
-        content = re.sub(pattern, replace_code_block, content, flags=re.DOTALL | re.MULTILINE)
+        # URLパターン
+        url_pattern = r'(?:^|\s)(https?://[^\s<>"{}|\\^`\[\]]+)'
+        
+        def replace_url(match):
+            url = match.group(1)
+            # URLの前の空白文字を保持
+            prefix = match.group(0)[:-len(url)]
+            return f'{prefix}[{url}]({url})'
+        
+        # URLを置換
+        content = re.sub(url_pattern, replace_url, content, flags=re.MULTILINE)
+        
+        # コードブロックを復元
+        for i, block in enumerate(code_blocks):
+            content = content.replace(f'%%%CODEBLOCK_{i}%%%', block)
         
         return content
+    
+    def _process_code_blocks_simple(self, content: str) -> str:
+        """コードブロックをシンプルに処理"""
+        code_highlighter = CodeHighlighter()
+        
+        # すべてのコードブロックを一度に検索して処理
+        def process_code_block(match):
+            full_text = match.group(0)
+            
+            # ```で始まり```で終わることを確認
+            if not full_text.startswith('```') or not full_text.endswith('```'):
+                return full_text
+            
+            # 最初の```の後から最初の改行までを言語情報として取得
+            first_line_end = full_text.find('\n')
+            if first_line_end == -1:
+                # 改行がない場合（空のコードブロック）
+                return full_text
+            
+            # 言語情報を抽出（```の3文字後から改行まで）
+            lang_info = full_text[3:first_line_end].strip()
+            
+            # コード内容を抽出（最初の改行の後から、最後の```の前まで）
+            code_content = full_text[first_line_end + 1:-3]
+            
+            # 最後の改行を削除（```が独立した行にある場合）
+            if code_content.endswith('\n'):
+                code_content = code_content[:-1]
+            
+            # デバッグ情報
+            logger.debug(f"コードブロック処理: 言語='{lang_info}', コード長={len(code_content)}")
+            
+            # 仮のMatchオブジェクトを作成
+            class FakeMatch:
+                def __init__(self, lang, code):
+                    self.lang = lang
+                    self.code = code
+                
+                def group(self, n):
+                    if n == 0:
+                        return full_text
+                    elif n == 1:
+                        return self.lang
+                    elif n == 2:
+                        return self.code
+            
+            # CodeHighlighterで処理してHTMLを生成
+            fake_match = FakeMatch(lang_info, code_content)
+            html = code_highlighter.process_code_block(fake_match)
+            
+            # 特殊マーカーで囲む
+            return '\n\n' + html + '\n\n'
+        
+        # ```で始まり```で終わるブロックをすべて処理
+        pattern = r'```[\s\S]*?```'
+        return re.sub(pattern, process_code_block, content)
     
     def _process_strikethrough(self, content: str) -> str:
         """打消し記法（~~text~~）を<del>タグに変換"""
@@ -164,15 +248,17 @@ class MarkdownParser:
     
     def _process_url_cards(self, html: str) -> str:
         """URLカード用のクラス付与"""
-        # 単独行のURLにクラスを付与
-        pattern = r'<p><a href="(https?://[^"]+)"[^>]*>([^<]+)</a></p>'
+        # 単独行のURLのみを対象とし、インラインリンクは除外
+        pattern = r'<p><a href="(https?://[^"]+)">([^<]+)</a></p>'
         
         def create_url_card(match):
             url = match.group(1)
             text = match.group(2)
             
-            # URLカードのHTML（スタイル込み）
-            card_html = f'''<a href="{url}" class="url-card" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 12px; margin: 1.5rem 0; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #374151; transition: all 0.2s ease;">
+            # URLとテキストが同じ場合のみカード化（プレーンURLの場合）
+            if url == text:
+                # URLカードのHTML（スタイル込み）
+                card_html = f'''<a href="{url}" class="url-card" target="_blank" rel="noopener noreferrer" style="display: flex; align-items: center; gap: 12px; margin: 1.5rem 0; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; text-decoration: none; color: #374151; transition: all 0.2s ease;">
     <div class="url-card-image" style="width: 48px; height: 48px; background: #e5e7eb; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
         <span style="color: #9ca3af; font-size: 1.2rem;">🔗</span>
     </div>
@@ -181,8 +267,10 @@ class MarkdownParser:
         <div class="url-card-url" style="color: #6b7280; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</div>
     </div>
 </a>'''
-            
-            return card_html
+                return card_html
+            else:
+                # URLとテキストが異なる場合は、そのまま返す（通常のリンク）
+                return match.group(0)
         
         return re.sub(pattern, create_url_card, html)
     
