@@ -89,19 +89,36 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let comment = '## 📝 WordPress下書き投稿結果\n\n';
+            const commentMarker = '<!-- draft-result -->';
+            let comment = `${commentMarker}\n## 📝 WordPress下書き投稿結果\n\n`;
             if (fs.existsSync('output.json')) {
               const output = JSON.parse(fs.readFileSync('output.json', 'utf8'));
               comment += `✅ **${output.wordpress_url}** に下書きとして投稿されました。\n\n`;
               comment += `- 処理画像数: ${output.images_processed}\n`;
               comment += `- 処理時間: ${output.processing_time_seconds}秒\n`;
             }
-            github.rest.issues.createComment({
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              per_page: 100
             });
+            const existing = comments.find(c => c.body.startsWith(commentMarker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
 
       - name: 🔎 品質チェック実行
         if: steps.check-drafts.outputs.found == 'true'
@@ -135,8 +152,9 @@ jobs:
           script: |
             const fs = require('fs');
             if (!fs.existsSync('quality_report.json')) return;
+            const commentMarker = '<!-- quality-result -->';
             const report = JSON.parse(fs.readFileSync('quality_report.json', 'utf8'));
-            let comment = '## ✅ 記事品質チェック結果\n\n';
+            let comment = `${commentMarker}\n## ✅ 記事品質チェック結果\n\n`;
             let hasIssues = false;
             for (const result of report) {
               const filename = result.file.split('/').pop();
@@ -160,12 +178,28 @@ jobs:
             if (hasIssues) {
               comment += '> 💡 上記の項目を確認し、必要に応じて修正してください。';
             }
-            github.rest.issues.createComment({
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              per_page: 100
             });
+            const existing = comments.find(c => c.body.startsWith(commentMarker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
 
       - name: 📄 プレビュー生成
         if: steps.check-drafts.outputs.found == 'true'
@@ -242,13 +276,35 @@ jobs:
         with:
           script: |
             const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const comment = `## 👀 記事プレビュー\n\n` +
+            const commentMarker = '<!-- preview-link -->';
+            const comment = `${commentMarker}\n## 👀 記事プレビュー\n\n` +
               `プレビューHTMLが生成されました。\n\n` +
               `[📄 プレビューをダウンロード](${artifactUrl})\n\n` +
               `> **Note:** Artifactsセクションから \`article-previews\` をダウンロードしてブラウザで開いてください。`;
-            github.rest.issues.createComment({
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
+<<<<<<< HEAD
               body: comment
             });
+=======
+              per_page: 100
+            });
+            const existing = comments.find(c => c.body.startsWith(commentMarker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+>>>>>>> 4d6a8c9ebab601e3bdc548eb5ec16dab0d3aecb5
