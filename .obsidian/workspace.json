@@ -11,6 +11,7 @@
             "id": "9e435a116dc0aca5",
             "type": "leaf",
             "state": {
+<<<<<<< HEAD
               "type": "markdown",
               "state": {
                 "file": "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
@@ -19,6 +20,12 @@
               },
               "icon": "lucide-file",
               "title": "Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1"
+=======
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "新規タブ"
+>>>>>>> main
             }
           }
         ]
@@ -128,13 +135,20 @@
             "state": {
               "type": "outline",
               "state": {
+<<<<<<< HEAD
                 "file": "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
+=======
+>>>>>>> main
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
+<<<<<<< HEAD
               "title": "Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1のアウトライン"
+=======
+              "title": "アウトライン"
+>>>>>>> main
             }
           },
           {
@@ -167,17 +181,22 @@
   "active": "9e435a116dc0aca5",
   "lastOpenFiles": [
     "assets/images/logi_shifter_test.gif",
+<<<<<<< HEAD
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-13.png",
     "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-14.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-12.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-11.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-10.png",
+=======
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725.png",
+>>>>>>> main
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-9.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-8.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-7.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-6.png",
     "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-5.png",
+<<<<<<< HEAD
     "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.135166607747680",
     "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.131139634326112",
     "scripts/__pycache__/wordpress_api.cpython-313.pyc.129736262590960",
@@ -190,6 +209,26 @@
     "scripts/utils/__pycache__/logger.cpython-313.pyc.137784676412144",
     "README.md",
     "articles/drafts/テスト投稿用.md",
+=======
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-4.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-3.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-2.png",
+    "assets/images/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1-20250725-13.png",
+    "articles/drafts/Logicool LPST-14900のD-SubをArduinoProMicroを使いUSB接続できるようにする 1.md",
+    "articles/drafts",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.130580347043888",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.140639845793840",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.124836982767664",
+    "scripts/utils/__pycache__/code_highlighter.cpython-313.pyc.130024233854144",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.130024234467376",
+    "scripts/utils/__pycache__/code_highlighter.cpython-313.pyc.126036153590832",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.126036154220592",
+    "scripts/utils/__pycache__/obsidian_processor.cpython-313.pyc.133466740005392",
+    "scripts/utils/__pycache__/markdown_parser.cpython-313.pyc.133466743324720",
+    "articles/published/テスト投稿用.md",
+    "articles/drafts/テスト投稿用.md",
+    "README.md",
+>>>>>>> main
     "blog/無題のファイル.md",
     "blog/Untitled 1.md",
     "blog/test.md",
